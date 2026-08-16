@@ -4,7 +4,7 @@
   "private": false,
   "license": "MIT",
   "author": "Vishruth Vijay",
-  "description": "TubePulse — a voice-first workspace for YouTube competitor research, outlier discovery and evidence-backed video ideas.",
+  "description": "TubePulse \u2014 a voice-first workspace for YouTube competitor research, outlier discovery and evidence-backed video ideas.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -13,7 +13,9 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "check": "npm run typecheck && npm run lint && npm run test && npm run build"
+    "check": "npm run check:env && npm run typecheck && npm run lint && npm run test && npm run build",
+    "check:env": "node scripts/check-env-example.mjs",
+    "db:sql": "node scripts/print-migrations.mjs"
   },
   "dependencies": {
     "@mendable/firecrawl-js": "^4.32.2",

@@ -22,6 +22,8 @@ Package manager is **npm**. Do not introduce pnpm or yarn.
 
 ```bash
 npm run dev        # local dev server
+npm run db:sql     # print all migrations for the Supabase SQL editor
+npm run check:env  # fail if .env.example holds a real value
 npm run typecheck  # tsc --noEmit
 npm run lint       # eslint
 npm run test       # vitest run
@@ -35,6 +37,11 @@ disabling the check.
 
 ## 3. Non-negotiables
 
+- **Real values go in `.env.local`, never `.env.example`.** `.env.example` is
+  committed publicly and must stay blank. `npm run check:env` enforces this and
+  runs as the first step of `npm run check` and CI — because the rule has been
+  broken twice, and a rule that only lives in a README is a rule that gets
+  broken.
 - **No secrets outside `src/lib/`.** Server secrets are read through
   `serverEnv()` in `src/lib/env.ts`, never `process.env` directly. That file is
   `server-only`, which turns a leak into a build error.

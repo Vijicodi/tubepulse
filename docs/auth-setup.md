@@ -91,11 +91,22 @@ server-side. That route already exists; it needs no configuration.
 
 ## Applying the database migrations
 
-Paste each file into the Supabase dashboard **SQL editor** and run it, in order:
+One command prints every migration in the right order:
 
-1. `supabase/migrations/0001_init.sql` — channels, videos, jobs, ideas, RLS
-2. `supabase/migrations/0002_projects.sql` — projects, profiles, the sign-up
-   trigger
+```bash
+npm run db:sql | clip     # Windows — straight to the clipboard
+npm run db:sql            # or just print it and copy manually
+```
+
+Paste the whole block into the Supabase dashboard **SQL editor** and run it once.
+
+It covers:
+
+1. `0001_init.sql` — channels, videos, jobs, ideas, RLS
+2. `0002_projects.sql` — projects, profiles, the sign-up trigger
+
+Running it a second time will error, which is correct — migrations are history,
+not a script you re-run.
 
 Migration 0002 creates the trigger that writes a `profiles` row whenever anyone
 signs up, by email or by Google. Without it accounts still work, but display
