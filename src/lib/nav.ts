@@ -46,14 +46,14 @@ export const NAV_ITEMS: NavItem[] = [
     label: "Competitors",
     icon: Sparkles,
     description: "Channels you are tracking in this project.",
-    ready: false,
+    ready: true,
   },
   {
     href: "/outliers",
     label: "Outliers",
     icon: TrendingUp,
     description: "Videos that beat their own channel's median.",
-    ready: false,
+    ready: true,
   },
   {
     href: "/idea-lab",

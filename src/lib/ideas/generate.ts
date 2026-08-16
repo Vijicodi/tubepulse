@@ -1,5 +1,5 @@
 import "server-only";
-import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 import { z } from "zod";
 import { serverEnv } from "@/lib/env";
 import type { WebContext } from "@/lib/firecrawl/enrich";
@@ -13,11 +13,13 @@ import type { ScoredVideo } from "./score";
  * videoIds it was derived from. An idea without evidence is a guess, and the
  * product's whole claim is "here's why".
  *
- * We validate the response with zod. If the model returns something off-shape,
- * that is a failed job with a real error — never a half-written row.
+ * We ask OpenAI for a JSON object and then validate it with zod anyway. The
+ * response_format only guarantees valid JSON — it does not guarantee OUR shape,
+ * and a model that returns `{"suggestions": [...]}` would still be valid JSON.
+ * If it is off-shape that is a failed job with a real error, never a
+ * half-written row.
  */
 
-const MODEL = "claude-sonnet-5";
 const MAX_IDEAS = 8;
 
 export const ideaSchema = z.object({
@@ -40,6 +42,10 @@ export interface GenerateInput {
   webContext: WebContext[];
 }
 
+const SYSTEM_PROMPT = `You find video ideas for YouTube creators by reading what already outperformed on a competitor's channel.
+
+You are precise and honest. You never inflate confidence, you never propose an idea you cannot tie to specific evidence, and you never suggest a near-duplicate of a video that already exists.`;
+
 export function buildPrompt({ channelTitle, outliers, webContext }: GenerateInput): string {
   const videoLines = outliers
     .map(
@@ -55,7 +61,7 @@ export function buildPrompt({ channelTitle, outliers, webContext }: GenerateInpu
       ? webContext.map((entry) => `- ${entry.title} (${entry.url})\n  ${entry.excerpt}`).join("\n")
       : "(none gathered — work from the video data alone)";
 
-  return `You are analysing the channel "${channelTitle}" to find video ideas that are likely to outperform.
+  return `Analyse the channel "${channelTitle}" and find video ideas likely to outperform.
 
 BREAKOUT VIDEOS (these beat the channel's own median by 1.5x or more):
 ${videoLines}
@@ -66,13 +72,13 @@ ${contextLines}
 Produce up to ${MAX_IDEAS} video ideas.
 
 Rules:
-- Every idea must cite at least one videoId from the list above in evidenceVideoIds. Use the exact ids in square brackets.
+- Every idea must cite at least one videoId from the list above in evidenceVideoIds. Use the exact ids shown in square brackets.
 - "angle" is the specific take, not the topic. "Why X failed" beats "a video about X".
 - "reasoning" explains what in the data supports this. Reference the actual numbers.
 - "confidence" is 0-100 and should reflect how strong the evidence is. Be honest; a 40 is more useful than an inflated 90.
 - Do not propose a near-duplicate of a video that already exists in the list. Find the adjacent, unmade idea.
 
-Return ONLY valid JSON in this exact shape, no prose, no code fences:
+Return a JSON object of exactly this shape:
 {"ideas":[{"title":"...","angle":"...","reasoning":"...","confidence":0,"evidenceVideoIds":["..."]}]}`;
 }
 
@@ -83,18 +89,19 @@ export async function generateIdeas(input: GenerateInput): Promise<Idea[]> {
     );
   }
 
-  const client = new Anthropic({ apiKey: serverEnv().ANTHROPIC_API_KEY });
+  const env = serverEnv();
+  const client = new OpenAI({ apiKey: env.OPENAI_API_KEY });
 
-  const message = await client.messages.create({
-    model: MODEL,
-    max_tokens: 4096,
-    messages: [{ role: "user", content: buildPrompt(input) }],
+  const completion = await client.chat.completions.create({
+    model: env.OPENAI_MODEL,
+    response_format: { type: "json_object" },
+    messages: [
+      { role: "system", content: SYSTEM_PROMPT },
+      { role: "user", content: buildPrompt(input) },
+    ],
   });
 
-  const text = message.content
-    .filter((block): block is Anthropic.TextBlock => block.type === "text")
-    .map((block) => block.text)
-    .join("");
+  const text = completion.choices[0]?.message?.content ?? "";
 
   const parsed = ideasResponseSchema.safeParse(safeJsonParse(text));
   if (!parsed.success) {

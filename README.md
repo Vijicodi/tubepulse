@@ -27,7 +27,7 @@ outlier. Those relative scores are what the idea generator reasons over.
 | Database   | Supabase (Postgres, auth, realtime)  |
 | Scraping   | Apify                                |
 | Web context| Firecrawl                            |
-| Generation | Claude API, structured JSON output   |
+| Generation | OpenAI, JSON-mode + zod validation    |
 | Validation | Zod at every external boundary       |
 
 One Next.js app, not a separate frontend and backend —

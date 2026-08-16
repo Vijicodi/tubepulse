@@ -74,3 +74,24 @@ export async function fetchRunItems(datasetId: string): Promise<unknown[]> {
   const { items } = await client.dataset(datasetId).listItems({ clean: true });
   return items;
 }
+
+/**
+ * The current state of a run, for the polling fallback.
+ *
+ * Webhooks are the fast path, but they need a publicly reachable URL. During
+ * local development there usually isn't one, and without this the job card
+ * would spin forever on a scrape that actually finished.
+ */
+export interface RunState {
+  status: string;
+  datasetId: string | null;
+}
+
+export async function getRunState(runId: string): Promise<RunState> {
+  const client = createApifyClient();
+  const run = await client.run(runId).get();
+
+  if (!run) throw new Error("That scrape run no longer exists on Apify.");
+
+  return { status: run.status, datasetId: run.defaultDatasetId ?? null };
+}

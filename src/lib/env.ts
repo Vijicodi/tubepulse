@@ -19,7 +19,8 @@ const serverEnvSchema = z.object({
   APIFY_YOUTUBE_ACTOR: z.string().min(1).default("streamers/youtube-scraper"),
   APIFY_WEBHOOK_SECRET: z.string().min(16),
   FIRECRAWL_API_KEY: z.string().min(1),
-  ANTHROPIC_API_KEY: z.string().min(1),
+  OPENAI_API_KEY: z.string().min(1),
+  OPENAI_MODEL: z.string().min(1).default("gpt-4o"),
   APP_URL: z.url().default("http://localhost:3000"),
 });
 

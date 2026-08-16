@@ -1,21 +1,12 @@
 import Link from "next/link";
 import { EmptyState, WorkspacePanel } from "@/components/workspace/panel";
 import { CreateProjectForm } from "@/components/workspace/create-project-form";
-import { createServerClient } from "@/lib/supabase/server";
+import { getCurrentProject } from "@/lib/projects/current";
 
 export const metadata = { title: "Project — TubePulse" };
 
 export default async function ProjectPage() {
-  const supabase = await createServerClient();
-
-  // The most recently created project stands in as "current" until project
-  // switching lands. One query, and it is always a project the user owns.
-  const { data: project } = await supabase
-    .from("projects")
-    .select("*")
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  const project = await getCurrentProject();
 
   if (!project) {
     return (

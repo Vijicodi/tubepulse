@@ -57,9 +57,13 @@ Things the prompt deliberately asks for, do not quietly remove:
 
 ## Model
 
-`MODEL = "claude-sonnet-5"`, declared once at the top of `generate.ts`. Do not
-scatter model ids through the code, and do not change it without saying why in
-the PR.
+The model is `OPENAI_MODEL` in the environment, not a constant in the code —
+provider model names get renamed and deprecated, and that should be a `.env`
+edit rather than a deploy. Never scatter model ids through the code.
+
+`response_format: { type: "json_object" }` guarantees valid JSON, **not our
+shape**. The zod validation after it is not redundant: a model returning
+`{"suggestions": []}` is valid JSON and useless. Never remove that check.
 
 ## Cost and time
 
@@ -67,5 +71,6 @@ Idea generation runs in seconds, so it is a normal request/response with
 `maxDuration = 60`. If it grows past ~30 seconds, move it behind the jobs table
 pattern (`docs/decisions/0002`) rather than raising the timeout.
 
-`max_tokens: 4096` is sized for 8 ideas. Raising the idea count means raising
-this too, or the response truncates mid-JSON and fails validation.
+If you raise the idea count, watch for truncated JSON — a response cut off
+mid-object fails validation, which is the correct outcome but an unhelpful
+error. Raise the token ceiling alongside it.

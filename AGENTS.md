@@ -64,6 +64,7 @@ src/app/                routes — folder name is the URL
   api/research/         POST: start a channel scrape (returns in <1s)
   api/webhooks/apify/   POST: where finished scrapes land (public, secret-checked)
   api/ideas/            POST: generate ideas from stored videos
+  api/jobs/[id]/sync    POST: polling fallback when webhooks cannot reach us
   channels/[id]/        a researched channel
   index.css             the TweakCN theme — the only place colours are defined
 src/components/         our components
@@ -120,6 +121,13 @@ fixing a bug — the code fix alone is half the job.
   `docs/auth-setup.md` before debugging a "code never arrives" report.
 - **`getUser()`, never `getSession()`, in middleware.** getSession trusts the
   cookie without revalidating it.
+- **Apify ingest lives in one module.** `lib/apify/ingest.ts` is shared by the
+  webhook and the sync route. Never inline a second copy — the divergence only
+  reproduces on one machine.
+- **The model is `OPENAI_MODEL` in env, not a constant.** Provider model names
+  get renamed; that should be a `.env` edit, not a deploy.
+- **JSON mode guarantees valid JSON, not our shape.** The zod check after the
+  OpenAI call is not redundant. Never remove it.
 
 ## 7. Stop and ask
 

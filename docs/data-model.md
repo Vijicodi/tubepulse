@@ -1,18 +1,46 @@
 # Data model
 
-Four tables. Schema lives in `supabase/migrations/`, types in
+Six tables. Schema lives in `supabase/migrations/`, types in
 `src/lib/supabase/types.ts`. Those two files change together, in the same pull
 request, always.
 
+## projects
+
+The spine. Competitors, outliers, ideas and jobs all belong to a project, and a
+project belongs to a user. Which project you are "in" is held in the
+`tp_project` cookie — see `src/lib/projects/current.ts`.
+
+The cookie is only a hint. It is always re-resolved against the database under
+RLS, so a tampered cookie naming someone else's project resolves to nothing and
+falls back to the user's own most recent project.
+
+| column        | type          | notes                          |
+| ------------- | ------------- | ------------------------------ |
+| `owner_id`    | uuid          | → `auth.users`, cascade delete |
+| `name`        | text          | non-empty, checked in SQL      |
+| `niche`       | text \| null  |                                |
+| `description` | text \| null  |                                |
+
+## profiles
+
+Mirrors the bits of `auth.users` the UI needs. `auth.users` is managed by
+Supabase and must not be written to directly.
+
+Rows are created by the `on_auth_user_created` trigger, which fires for
+email/password **and** Google sign-ups. Doing it in a trigger means no code path
+can forget — a route that creates users without a profile is not possible.
+
 ## channels
 
-One row per channel *per user*. `unique (owner_id, handle)` means researching a
-channel twice updates the row rather than creating a duplicate.
+One row per channel *per project*. `unique (project_id, handle)` means
+researching a channel twice updates the row rather than creating a duplicate,
+while the same channel can still be tracked in two different projects.
 
 | column             | type          | notes                                    |
 | ------------------ | ------------- | ---------------------------------------- |
 | `id`               | uuid          | primary key                              |
 | `owner_id`         | uuid          | → `auth.users`, cascade delete           |
+| `project_id`       | uuid          | → `projects`, cascade delete             |
 | `handle`           | text          | canonical, e.g. `@mkbhd`                 |
 | `channel_url`      | text          | what we hand the scraper                 |
 | `title`            | text \| null  | null until the first scrape fills it in  |
@@ -48,6 +76,11 @@ scrape does not need a 6-minute request.
 
 `jobs` is in the `supabase_realtime` publication. That single line at the bottom
 of migration 0001 is what makes the UI update by itself.
+
+Realtime is not the only path: the job card also polls `/api/jobs/[id]/sync`,
+so a scrape completes correctly on a laptop with no public webhook URL. Both
+paths share one ingest function — see
+[decision 0004](decisions/0004-webhook-plus-polling.md).
 
 ## ideas
 
