@@ -1,0 +1,47 @@
+[
+  {
+    "id": "aaa111",
+    "title": "I tested every AI coding agent for 30 days",
+    "url": "https://www.youtube.com/watch?v=aaa111",
+    "thumbnailUrl": "https://i.ytimg.com/vi/aaa111/hq.jpg",
+    "viewCount": "1.2M",
+    "likes": "48K",
+    "commentsCount": "3,204",
+    "duration": "PT4M13S",
+    "date": "2026-03-01T10:00:00.000Z",
+    "channelName": "Test Channel",
+    "channelUrl": "https://www.youtube.com/@testchannel",
+    "numberOfSubscribers": "1.5M",
+    "channelThumbnailUrl": "https://example.com/avatar.jpg"
+  },
+  {
+    "id": "bbb222",
+    "title": "Why my last video flopped",
+    "url": "https://www.youtube.com/watch?v=bbb222",
+    "thumbnailUrl": null,
+    "viewCount": 48300,
+    "likes": 2100,
+    "commentsCount": 187,
+    "duration": "12:07",
+    "date": "2026-04-15T08:30:00.000Z",
+    "channelName": "Test Channel",
+    "channelUrl": "https://www.youtube.com/@testchannel"
+  },
+  {
+    "videoId": "ccc333",
+    "title": "The setup I actually use",
+    "viewCount": "902",
+    "duration": "live",
+    "date": 1755302400000,
+    "channelUrl": "https://www.youtube.com/@testchannel",
+    "someFieldTheActorAddedLastWeek": "ignored on purpose"
+  },
+  {
+    "id": "ddd444",
+    "title": "This one has no publish date",
+    "url": "https://www.youtube.com/watch?v=ddd444",
+    "viewCount": "5K",
+    "date": "not a date"
+  },
+  "this item is a string, not an object"
+]
