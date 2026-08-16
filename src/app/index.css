@@ -197,3 +197,134 @@
     letter-spacing: var(--tracking-normal);
   }
 }
+
+/* ============================================================================
+   PROJECT ADDITIONS — not part of the TweakCN paste.
+
+   Keep this block at the BOTTOM of the file. When you replace the theme above
+   with a new TweakCN export, paste it in ABOVE this comment and everything
+   here keeps working.
+   ============================================================================ */
+
+/* --- Brand -----------------------------------------------------------------
+   The gradient from the TubePulse logo: violet -> magenta -> red. Defined once
+   here; every gradient in the app references these three stops so the brand
+   stays consistent when the theme changes.
+   -------------------------------------------------------------------------- */
+:root,
+.dark {
+  --brand-1: #5b26e6;
+  --brand-2: #d42c8e;
+  --brand-3: #fa3b4d;
+  --brand-gradient: linear-gradient(
+    135deg,
+    var(--brand-1) 0%,
+    var(--brand-2) 52%,
+    var(--brand-3) 100%
+  );
+}
+
+@utility text-brand-gradient {
+  background: var(--brand-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+@utility bg-brand-gradient {
+  background: var(--brand-gradient);
+}
+
+/* --- Depth -----------------------------------------------------------------
+   Layered vector depth rather than a 3D engine: a soft gradient bloom behind
+   a panel, and glass surfaces that catch a highlight along their top edge.
+   -------------------------------------------------------------------------- */
+@utility surface-glass {
+  background: color-mix(in oklab, var(--card) 82%, transparent);
+  backdrop-filter: blur(18px);
+  border: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
+  box-shadow:
+    0 1px 0 0 color-mix(in oklab, white 8%, transparent) inset,
+    0 24px 60px -24px rgb(0 0 0 / 0.55);
+}
+
+@utility surface-raised {
+  background: color-mix(in oklab, var(--card) 94%, transparent);
+  border: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+  box-shadow:
+    0 1px 0 0 color-mix(in oklab, white 6%, transparent) inset,
+    0 12px 32px -18px rgb(0 0 0 / 0.6);
+}
+
+/* Cards that lift slightly toward the cursor. Transform only — no layout work,
+   so this stays smooth on a phone. */
+@utility lift {
+  transition:
+    transform 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 220ms ease;
+}
+
+/* --- Motion ----------------------------------------------------------------- */
+@keyframes tp-drift {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(2%, -3%, 0) scale(1.06);
+  }
+}
+
+@keyframes tp-pulse-ring {
+  0% {
+    transform: scale(0.92);
+    opacity: 0.55;
+  }
+  70% {
+    transform: scale(1.28);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1.28);
+    opacity: 0;
+  }
+}
+
+@keyframes tp-rise {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 14px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@utility animate-drift {
+  animation: tp-drift 18s ease-in-out infinite;
+}
+
+@utility animate-rise {
+  animation: tp-rise 620ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* Scrollbars that do not break the dark surfaces. */
+@layer base {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklab, var(--muted-foreground) 35%, transparent)
+      transparent;
+  }
+}

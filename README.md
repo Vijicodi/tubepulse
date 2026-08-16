@@ -1,7 +1,8 @@
-# YT Growth
+# TubePulse
 
-Paste a competitor's YouTube channel. Get their real video performance, enriched
-with web context, turned into ranked video ideas with the evidence attached.
+A voice-first workspace for YouTube competitor research. Paste a competitor's
+channel, get their real video performance enriched with web context, turned into
+ranked video ideas with the evidence attached.
 
 MIT licensed. Built by Vishruth Vijay.
 
@@ -21,6 +22,7 @@ outlier. Those relative scores are what the idea generator reasons over.
 | Layer      | Choice                              |
 | ---------- | ----------------------------------- |
 | App        | Next.js 16 (App Router), React 19    |
+| Auth       | Supabase email + 6-digit code, Google OAuth |
 | UI         | Tailwind v4, shadcn/ui, TweakCN theme |
 | Database   | Supabase (Postgres, auth, realtime)  |
 | Scraping   | Apify                                |
@@ -57,8 +59,9 @@ cp .env.example .env.local     # then fill it in
 npm run dev
 ```
 
-Apply the database schema by pasting `supabase/migrations/0001_init.sql` into
-the Supabase dashboard SQL editor.
+Apply the database schema by pasting each file in `supabase/migrations/` into
+the Supabase dashboard SQL editor, in order. Two Supabase dashboard settings are
+required for sign-up and Google login — see [docs/auth-setup.md](docs/auth-setup.md).
 
 For webhooks to reach you locally, `APP_URL` must be publicly reachable — use a
 tunnel (ngrok, cloudflared), not `localhost`.

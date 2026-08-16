@@ -37,7 +37,7 @@ export async function POST(request: Request) {
   // RLS means this returns nothing if the channel is not theirs.
   const { data: channel } = await supabase
     .from("channels")
-    .select("id, title, handle")
+    .select("id, title, handle, project_id")
     .eq("id", body.data.channelId)
     .single();
 
@@ -92,6 +92,7 @@ export async function POST(request: Request) {
       ideas.map((idea) => ({
         owner_id: user.id,
         channel_id: channel.id,
+        project_id: channel.project_id,
         title: idea.title,
         angle: idea.angle,
         reasoning: idea.reasoning,

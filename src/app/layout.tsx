@@ -15,6 +15,9 @@
    The font variables go on <body>, not <html>, deliberately: <body> is a
    descendant of :root, so its values shadow the placeholder font names in the
    theme's :root block no matter what order the stylesheets load in.
+
+   `className="dark"` on <html> is what selects the theme's .dark palette. The
+   product is designed dark; there is no light mode toggle yet.
    ============================================================================ */
 
 import type { Metadata } from "next";
@@ -39,16 +42,20 @@ const fontMono = Space_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "YT Growth — competitor research and idea generation",
+  title: {
+    default: "TubePulse — voice-first creator intelligence",
+    template: "%s",
+  },
   description:
-    "Paste a competitor's YouTube channel. Get their real video performance, enriched with web context, turned into ranked video ideas with the evidence attached.",
+    "A conversational workspace for competitor research, outlier discovery, and evidence-backed video ideas.",
+  icons: { icon: "/favicon.ico" },
 };
 
 export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className="h-full" suppressHydrationWarning>
+    <html lang="en" className="dark h-full" suppressHydrationWarning>
       <body
         className={`${fontSans.variable} ${fontSerif.variable} ${fontMono.variable} bg-background text-foreground flex min-h-full flex-col font-sans antialiased`}
       >

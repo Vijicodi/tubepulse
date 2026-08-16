@@ -17,6 +17,7 @@ export type JobKind = "channel_scrape" | "idea_generation";
 export type ChannelRow = {
   id: string;
   owner_id: string;
+  project_id: string;
   handle: string;
   channel_url: string;
   title: string | null;
@@ -50,6 +51,7 @@ export type JobRow = {
   owner_id: string;
   kind: JobKind;
   status: JobStatus;
+  project_id: string | null;
   channel_id: string | null;
   /** Apify run id, so a webhook can find the job it belongs to. */
   external_run_id: string | null;
@@ -62,6 +64,7 @@ export type IdeaRow = {
   id: string;
   owner_id: string;
   channel_id: string;
+  project_id: string | null;
   title: string;
   angle: string;
   reasoning: string;
@@ -71,6 +74,23 @@ export type IdeaRow = {
   evidence_video_ids: string[];
   created_at: string;
 }
+
+export type ProjectRow = {
+  id: string;
+  owner_id: string;
+  name: string;
+  niche: string | null;
+  description: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ProfileRow = {
+  id: string;
+  display_name: string | null;
+  avatar_url: string | null;
+  created_at: string;
+};
 
 type Timestamps = "id" | "created_at";
 
@@ -82,6 +102,21 @@ type Timestamps = "id" | "created_at";
 export type Database = {
   public: {
     Tables: {
+      projects: {
+        Row: ProjectRow;
+        Insert: Omit<ProjectRow, Timestamps | "updated_at"> & {
+          id?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Omit<ProjectRow, Timestamps>>;
+        Relationships: [];
+      };
+      profiles: {
+        Row: ProfileRow;
+        Insert: Omit<ProfileRow, "created_at"> & { created_at?: string };
+        Update: Partial<Omit<ProfileRow, "id" | "created_at">>;
+        Relationships: [];
+      };
       channels: {
         Row: ChannelRow;
         Insert: Omit<ChannelRow, Timestamps> & { id?: string };

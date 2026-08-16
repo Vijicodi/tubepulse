@@ -5,9 +5,12 @@ file gets skimmed, exactly like a long employee handbook.
 
 ## 1. What this is
 
-YT Growth: paste a competitor's YouTube channel, get their real video
-performance, enriched with web context, turned into ranked video ideas with the
-evidence attached.
+TubePulse: a voice-first workspace. Paste a competitor's YouTube channel, get
+their real video performance, enriched with web context, turned into ranked video
+ideas with the evidence attached.
+
+Everything hangs off a **project** — competitors, outliers, ideas and transcripts
+all belong to one, and a project belongs to a user.
 
 If a change does not move that sentence forward, it is out of scope.
 
@@ -54,6 +57,10 @@ disabling the check.
 
 ```
 src/app/                routes — folder name is the URL
+  (workspace)/          the signed-in app: projects, competitors, outliers,
+                        idea-lab, saved-ideas, transcript
+  login/                split-screen auth + the 6-digit code step
+  auth/callback/        Google OAuth code exchange (server-side)
   api/research/         POST: start a channel scrape (returns in <1s)
   api/webhooks/apify/   POST: where finished scrapes land (public, secret-checked)
   api/ideas/            POST: generate ideas from stored videos
@@ -67,6 +74,9 @@ src/lib/
   ideas/                scoring (pure) + generation (LLM)
   schemas/              zod — the trust boundary
   supabase/             clients + hand-maintained Database types
+  auth/                 server actions for sign-in, sign-up, verify, sign-out
+  projects/             project server actions
+  nav.ts                the sidebar list — single source for routes + titles
   youtube/              channel URL parsing (pure)
 supabase/migrations/    schema history — never edited after being applied
 tests/                  vitest, node environment, fixtures included
@@ -101,6 +111,15 @@ fixing a bug — the code fix alone is half the job.
 - **`src/lib/env.ts` is `server-only`.** Client components import
   `src/lib/public-env.ts` instead. Importing the wrong one breaks the build.
 - **Next 16 route params are a Promise.** `const { id } = await params`.
+- **`src/app/index.css` holds the user's TweakCN paste.** Add project CSS only
+  in the marked block at the bottom, never inside their theme region.
+- **The brand gradient is `--brand-1/2/3`.** Never hardcode the violet, magenta
+  or red — every gradient reads those three tokens.
+- **Auth needs two Supabase dashboard settings** that are not in this repo: the
+  `{{ .Token }}` email template and the Google provider. See
+  `docs/auth-setup.md` before debugging a "code never arrives" report.
+- **`getUser()`, never `getSession()`, in middleware.** getSession trusts the
+  cookie without revalidating it.
 
 ## 7. Stop and ask
 

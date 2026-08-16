@@ -16,6 +16,7 @@ import { InvalidChannelInputError, parseChannelInput } from "@/lib/youtube/chann
 
 const bodySchema = z.object({
   channel: z.string().min(1, "Enter a channel handle or URL"),
+  projectId: z.uuid("Pick a project to research in."),
 });
 
 export async function POST(request: Request) {
@@ -47,12 +48,25 @@ export async function POST(request: Request) {
     throw error;
   }
 
+  // RLS means this returns nothing unless the project belongs to this user,
+  // so it doubles as the ownership check.
+  const { data: project } = await supabase
+    .from("projects")
+    .select("id")
+    .eq("id", body.data.projectId)
+    .single();
+
+  if (!project) {
+    return NextResponse.json({ error: "Project not found." }, { status: 404 });
+  }
+
   // Upsert the channel so re-researching updates rather than duplicating.
   const { data: channel, error: channelError } = await supabase
     .from("channels")
     .upsert(
       {
         owner_id: user.id,
+        project_id: project.id,
         handle: parsed.handle,
         channel_url: parsed.channelUrl,
         title: null,
@@ -60,7 +74,7 @@ export async function POST(request: Request) {
         thumbnail_url: null,
         last_scraped_at: null,
       },
-      { onConflict: "owner_id,handle" },
+      { onConflict: "project_id,handle" },
     )
     .select()
     .single();
@@ -80,6 +94,7 @@ export async function POST(request: Request) {
       owner_id: user.id,
       kind: "channel_scrape",
       status: "queued",
+      project_id: project.id,
       channel_id: channel.id,
       external_run_id: null,
       error: null,
