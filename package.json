@@ -4,9 +4,9 @@
   "private": false,
   "license": "MIT",
   "author": "Vishruth Vijay",
-  "description": "TubePulse \u2014 a voice-first workspace for YouTube competitor research, outlier discovery and evidence-backed video ideas.",
+  "description": "TubePulse — evidence-backed YouTube competitor research: real video performance, outliers scored against a channel's own median, and video ideas with their receipts attached.",
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -p 3111",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
@@ -15,7 +15,9 @@
     "test:watch": "vitest",
     "check": "npm run check:env && npm run typecheck && npm run lint && npm run test && npm run build",
     "check:env": "node scripts/check-env-example.mjs",
-    "db:sql": "node scripts/print-migrations.mjs"
+    "db:sql": "node scripts/print-migrations.mjs",
+    "razorpay:plan": "node scripts/create-razorpay-plan.mjs",
+    "razorpay:check": "node scripts/check-razorpay.mjs"
   },
   "dependencies": {
     "@mendable/firecrawl-js": "^4.32.2",
@@ -24,7 +26,9 @@
     "apify-client": "^2.25.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "gsap": "^3.15.0",
     "input-otp": "^1.4.2",
+    "lenis": "^1.3.26",
     "lucide-react": "^1.31.0",
     "next": "16.3.1",
     "next-themes": "^0.4.6",
@@ -35,6 +39,7 @@
     "server-only": "^0.0.1",
     "sonner": "^2.0.8",
     "tailwind-merge": "^3.6.0",
+    "three": "^0.185.1",
     "tw-animate-css": "^1.4.0",
     "zod": "^4.4.3"
   },
@@ -43,6 +48,7 @@
     "@types/node": "^20.19.43",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/three": "^0.185.4",
     "eslint": "^9",
     "eslint-config-next": "16.3.1",
     "tailwindcss": "^4",

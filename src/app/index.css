@@ -328,3 +328,193 @@
       transparent;
   }
 }
+
+/* ============================================================================
+   LANDING — the marketing page at "/".
+   ============================================================================
+   The workspace is calm on purpose. The landing page is not: it has one job,
+   which is to make someone believe this thing is sharp before they read a word.
+
+   Everything here is scoped under .tp-landing so none of it can leak into the
+   signed-in app. All colour still comes from --brand-1/2/3 and the theme
+   tokens; there are no new literals.
+   ========================================================================== */
+
+.tp-landing {
+  --tp-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --tp-ease-in-out: cubic-bezier(0.76, 0, 0.24, 1);
+
+  /* Glass is built from the theme's card colour, so a theme swap carries. */
+  --glass-tint: color-mix(in oklab, var(--card) 46%, transparent);
+  --glass-edge: color-mix(in oklab, white 14%, transparent);
+  --glass-sheen: color-mix(in oklab, white 22%, transparent);
+
+  /* The page sits deeper than the app so the gradient reads as light. */
+  --ink: color-mix(in oklab, var(--background) 92%, black);
+
+  /* A warm off-white rather than pure #fff. Pure white on near-black is the
+     harsh, flat combination that makes a dark page look untouched by anyone. */
+  --bone: color-mix(in oklab, var(--foreground) 92%, #ffe9dd);
+}
+
+/* --- Liquid glass ----------------------------------------------------------
+   Three stacked effects, which is what separates this from a grey box at 40%
+   opacity: a blurred + saturated backdrop, a bright top edge where light would
+   catch, and a slow specular sweep across the surface.
+   -------------------------------------------------------------------------- */
+@utility glass-liquid {
+  position: relative;
+  background: var(--glass-tint);
+  backdrop-filter: blur(22px) saturate(160%);
+  -webkit-backdrop-filter: blur(22px) saturate(160%);
+  border: 1px solid var(--glass-edge);
+  box-shadow:
+    0 1px 0 0 var(--glass-sheen) inset,
+    0 -1px 0 0 color-mix(in oklab, black 30%, transparent) inset,
+    0 30px 70px -30px rgb(0 0 0 / 0.7);
+  overflow: hidden;
+}
+
+/* The moving highlight. A pseudo-element so it never affects layout. */
+@utility glass-sheen {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    115deg,
+    transparent 30%,
+    color-mix(in oklab, white 10%, transparent) 45%,
+    transparent 60%
+  );
+  translate: -120% 0;
+  animation: tp-sheen 7s var(--tp-ease-in-out) infinite;
+}
+
+@keyframes tp-sheen {
+  0%,
+  62% {
+    translate: -120% 0;
+  }
+  86%,
+  100% {
+    translate: 120% 0;
+  }
+}
+
+/* --- Grain -----------------------------------------------------------------
+   A little noise over the whole page. Flat dark gradients band badly on cheap
+   panels; grain hides it and stops the page looking like a render.
+   -------------------------------------------------------------------------- */
+@utility grain {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+  opacity: 0.42;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E");
+}
+
+/* --- Type ------------------------------------------------------------------
+   Display type is deliberately oversized and tight. The structure of the page
+   is the typography; there are no cards around the section copy.
+   -------------------------------------------------------------------------- */
+@utility font-display {
+  font-family: var(--font-display), Georgia, serif;
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  line-height: 0.94;
+}
+
+/* The accent for a phrase inside a headline: the serif's italic.
+   Deliberately sets NO colour, so it can be combined with text-accent-gradient
+   without the two fighting — an earlier version set `color: var(--bone)` here,
+   which silently won and meant the gradient never rendered at all. Used alone
+   it simply inherits, which is the intended restrained default. */
+@utility display-accent {
+  font-style: italic;
+}
+
+/* When a gradient IS used on type, bias it to the magenta/red end. The violet
+   start of the brand ramp is the part that reads as stock-AI purple, so it stays
+   in the ambient mesh where it belongs rather than on the words. */
+@utility text-accent-gradient {
+  background: linear-gradient(
+    100deg,
+    var(--brand-2) 0%,
+    var(--brand-3) 62%,
+    color-mix(in oklab, var(--brand-3) 70%, orange) 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* A hairline rule carrying the brand, used to divide sections. Thin colour
+   goes a lot further than a large field of it. */
+@utility rule-brand {
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--brand-2) 35%,
+    var(--brand-3) 65%,
+    transparent
+  );
+}
+
+@utility label-mono {
+  font-family: var(--font-mono), monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+
+/* --- Cursor ----------------------------------------------------------------
+   The real cursor is hidden and replaced by a glass lens. Pointer-coarse
+   devices keep their native behaviour — a custom cursor on a phone is a bug.
+   -------------------------------------------------------------------------- */
+@media (hover: hover) and (pointer: fine) {
+  .tp-landing,
+  .tp-landing * {
+    cursor: none;
+  }
+}
+
+@utility cursor-lens {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 70;
+  pointer-events: none;
+  border-radius: 9999px;
+  backdrop-filter: blur(2px) brightness(1.5) saturate(150%);
+  -webkit-backdrop-filter: blur(2px) brightness(1.5) saturate(150%);
+  border: 1px solid color-mix(in oklab, white 45%, transparent);
+  will-change: transform;
+}
+
+/* --- Reveal ----------------------------------------------------------------
+   GSAP animates FROM these. Declaring the start state in CSS rather than JS
+   means nothing flashes at full opacity before hydration.
+   -------------------------------------------------------------------------- */
+.tp-landing [data-reveal] {
+  opacity: 0;
+  will-change: transform, opacity;
+}
+
+/* If JS never runs, the page must still be readable. */
+.tp-landing.tp-no-js [data-reveal] {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tp-landing [data-reveal] {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+  .tp-landing .glass-sheen {
+    animation: none;
+  }
+}

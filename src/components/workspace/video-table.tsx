@@ -29,49 +29,53 @@ export function VideoTable({
       <Table>
         <TableHeader>
           <TableRow className="hover:bg-transparent">
-            <TableHead className="min-w-[260px]">Video</TableHead>
+            <TableHead className="w-[42%] min-w-[13rem]">Video</TableHead>
             {channelNames && <TableHead className="min-w-[120px]">Channel</TableHead>}
-            <TableHead className="text-right">Views</TableHead>
+            <TableHead className="text-right">Reach</TableHead>
             <TableHead className="text-right">Score</TableHead>
-            <TableHead className="text-right">Views/day</TableHead>
+            <TableHead className="hidden text-right xl:table-cell">Per day</TableHead>
             <TableHead className="text-right">Published</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {videos.map((video) => (
             <TableRow key={video.id}>
-              <TableCell className="max-w-[380px]">
+              {/* min-w-0 on BOTH the flex row and the clamped span. Without it
+                  the title refuses to shrink and spills into the Views column —
+                  which is the overlap that got reported. */}
+              <TableCell className="min-w-0 align-top">
                 <a
                   href={video.url}
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex items-start gap-1.5 font-medium transition-colors hover:text-[var(--brand-2)]"
+                  title={video.title}
+                  className="flex min-w-0 items-start gap-1.5 font-medium transition-colors hover:text-[var(--brand-2)]"
                 >
-                  <span className="line-clamp-2">{video.title}</span>
+                  <span className="line-clamp-2 min-w-0 break-words">{video.title}</span>
                   <ExternalLink className="mt-1 size-3 shrink-0 opacity-50" aria-hidden />
                 </a>
               </TableCell>
 
               {channelNames && (
-                <TableCell className="text-muted-foreground truncate text-sm">
+                <TableCell className="text-muted-foreground max-w-[9rem] truncate align-top text-sm">
                   {channelNames[video.channel_id] ?? "—"}
                 </TableCell>
               )}
 
-              <TableCell className="text-right font-mono tabular-nums">
-                {Number(video.view_count).toLocaleString()}
+              <TableCell className="text-right align-top font-mono tabular-nums whitespace-nowrap">
+                <Reach video={video} />
               </TableCell>
-              <TableCell className="text-right">
+              <TableCell className="text-right align-top">
                 <ScoreBadge score={video.outlier_score} />
               </TableCell>
-              <TableCell className="text-muted-foreground text-right font-mono tabular-nums">
+              <TableCell className="text-muted-foreground hidden text-right align-top font-mono tabular-nums whitespace-nowrap xl:table-cell">
                 {video.velocity === null
                   ? "—"
                   : Math.round(Number(video.velocity)).toLocaleString()}
               </TableCell>
-              <TableCell className="text-muted-foreground text-right font-mono text-xs whitespace-nowrap">
+              <TableCell className="text-muted-foreground text-right align-top font-mono text-xs whitespace-nowrap">
                 {new Date(video.published_at).toLocaleDateString(undefined, {
-                  year: "numeric",
+                  year: "2-digit",
                   month: "short",
                   day: "numeric",
                 })}
@@ -81,6 +85,42 @@ export function VideoTable({
         </TableBody>
       </Table>
     </div>
+  );
+}
+
+/**
+ * The number this row is actually judged on.
+ *
+ * A static Instagram post has NO view count — it is not something you watch —
+ * so it shows likes, which is what it was scored against. Printing "0 views"
+ * would read as a post nobody saw, which is a different and false claim.
+ *
+ * The unit is spelled out because the column now holds three different things
+ * depending on the row, and an unlabelled number would be a guess.
+ */
+function Reach({ video }: { video: VideoRow }) {
+  if (video.kind === "post") {
+    return video.like_count === null ? (
+      <span className="text-muted-foreground">—</span>
+    ) : (
+      <>
+        {Number(video.like_count).toLocaleString()}
+        <span className="text-muted-foreground ml-1 text-[0.65rem]">likes</span>
+      </>
+    );
+  }
+
+  if (video.view_count === null) {
+    return <span className="text-muted-foreground">—</span>;
+  }
+
+  return (
+    <>
+      {Number(video.view_count).toLocaleString()}
+      <span className="text-muted-foreground ml-1 text-[0.65rem]">
+        {video.kind === "reel" ? "plays" : "views"}
+      </span>
+    </>
   );
 }
 

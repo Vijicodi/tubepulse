@@ -1,8 +1,12 @@
 # TubePulse
 
-A voice-first workspace for YouTube competitor research. Paste a competitor's
-channel, get their real video performance enriched with web context, turned into
-ranked video ideas with the evidence attached.
+Evidence-backed YouTube competitor research. Paste a competitor's channel, get
+their real video performance enriched with web context, turned into ranked video
+ideas with the evidence attached.
+
+Every number is measured, not guessed: an outlier is a video that beat *its own
+channel's* median, and every idea links the videos it came from so you can argue
+with it instead of trusting it.
 
 MIT licensed. Built by Vishruth Vijay.
 

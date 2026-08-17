@@ -1,0 +1,60 @@
+[
+  {
+    "inputUrl": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    "videoUrl": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    "language": "English",
+    "languageCode": "en",
+    "isGenerated": false,
+    "transcript": [
+      {
+        "text": "[♪♪♪]",
+        "start": 1.36,
+        "duration": 1.68
+      },
+      {
+        "text": "♪ We&#39;re no strangers to love ♪",
+        "start": 18.64,
+        "duration": 3.24
+      },
+      {
+        "text": "♪ You know the rules\nand so do I ♪",
+        "start": 22.64,
+        "duration": 4.32
+      },
+      {
+        "text": "♪ A full commitment&#39;s\nwhat I&#39;m thinking of ♪",
+        "start": 27.04,
+        "duration": 4
+      },
+      {
+        "text": "♪ You wouldn&#39;t get this\nfrom any other guy ♪",
+        "start": 31.12,
+        "duration": 3.96
+      },
+      {
+        "text": "♪ I just wanna tell you\nhow I&#39;m feeling ♪",
+        "start": 35.16,
+        "duration": 4.36
+      },
+      {
+        "text": "♪ Gotta make you understand ♪",
+        "start": 40.52,
+        "duration": 2.4
+      },
+      {
+        "text": "♪ Never gonna give you up ♪",
+        "start": 43,
+        "duration": 2.12
+      }
+    ],
+    "snippetCount": 61,
+    "videoDetails": {
+      "videoId": "dQw4w9WgXcQ",
+      "title": "Rick Astley - Never Gonna Give You Up (Official Video) (4K Remaster)",
+      "lengthSeconds": "213",
+      "author": "Rick Astley",
+      "isLiveContent": false,
+      "isPrivate": false
+    }
+  }
+]

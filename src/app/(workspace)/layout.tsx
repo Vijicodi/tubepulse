@@ -28,7 +28,7 @@ export default async function WorkspaceLayout({
     .select("id", { count: "exact", head: true });
 
   const eyebrow =
-    (count ?? 0) === 0 ? "Set up your first project" : "Voice research workspace";
+    (count ?? 0) === 0 ? "Set up your first project" : "Competitor research workspace";
 
   return (
     <WorkspaceShell email={user.email ?? ""} eyebrow={eyebrow}>

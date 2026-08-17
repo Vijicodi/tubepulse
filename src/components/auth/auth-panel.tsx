@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { ArrowRight, Loader2, Lock } from "lucide-react";
@@ -13,6 +14,7 @@ import {
   type AuthResult,
 } from "@/lib/auth/actions";
 import { cn } from "@/lib/utils";
+import { OTP_LENGTH } from "@/lib/auth/otp";
 
 const initial: AuthResult = { error: null };
 
@@ -41,16 +43,16 @@ export function AuthPanel({
     <div className="surface-glass animate-rise w-full max-w-md rounded-2xl p-7 sm:p-8">
       <div className="bg-muted/40 text-muted-foreground mb-6 inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs">
         <Lock className="size-3" aria-hidden />
-        Secure creator workspace
+        Private by default
       </div>
 
       <h1 className="text-3xl font-semibold tracking-tight">
-        {mode === "login" ? "Welcome back" : "Create your account"}
+        {mode === "login" ? "Right where you left off" : "Let’s get you set up"}
       </h1>
       <p className="text-muted-foreground mt-2 text-sm">
         {mode === "login"
-          ? "Log in with your confirmed email to open your workspace."
-          : "We'll email you a 6-digit code to confirm it's you."}
+          ? "Email and password. We’ll keep this brief."
+          : `A ${OTP_LENGTH}-digit code lands in your inbox. Ten seconds, then you’re in.`}
       </p>
 
       {/* Segmented switch */}
@@ -113,16 +115,33 @@ export function AuthPanel({
           required
         />
 
-        <Field
-          id="password"
-          name="password"
-          type="password"
-          label="Password"
-          placeholder={mode === "signup" ? "At least 8 characters" : "••••••••••••"}
-          autoComplete={mode === "signup" ? "new-password" : "current-password"}
-          required
-          minLength={mode === "signup" ? 8 : undefined}
-        />
+        <div className="space-y-1.5">
+          <div className="flex items-baseline justify-between gap-3">
+            <Label htmlFor="password" className="text-xs">
+              Password
+            </Label>
+            {/* Only offered on the log-in tab. On sign-up there is no password
+                to have forgotten yet, and the link would just be noise. */}
+            {mode === "login" && (
+              <Link
+                href="/login/forgot"
+                className="text-muted-foreground hover:text-foreground text-xs transition-colors"
+              >
+                Forgot password?
+              </Link>
+            )}
+          </div>
+          <Input
+            id="password"
+            name="password"
+            type="password"
+            placeholder={mode === "signup" ? "At least 8 characters" : "••••••••••••"}
+            autoComplete={mode === "signup" ? "new-password" : "current-password"}
+            className="h-11"
+            required
+            minLength={mode === "signup" ? 8 : undefined}
+          />
+        </div>
 
         <SubmitButton label={mode === "login" ? "Log in" : "Sign up"} />
       </form>

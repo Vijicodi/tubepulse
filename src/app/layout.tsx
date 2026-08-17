@@ -21,7 +21,7 @@
    ============================================================================ */
 
 import type { Metadata } from "next";
-import { DM_Sans, Space_Mono } from "next/font/google";
+import { DM_Sans, Instrument_Serif, Space_Mono } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";
 import "./index.css";
 
@@ -35,6 +35,21 @@ const fontSerif = DM_Sans({
   variable: "--font-serif",
 });
 
+// Display face for the landing page only. DM Sans is the theme's body font and
+// stays exactly as TweakCN set it; this sits alongside rather than replacing it.
+//
+// A high-contrast editorial serif, not another heavy geometric sans. The huge
+// tight bold sans is the single most recognisable tell of a generated landing
+// page, and this product is about evidence and receipts — a dossier, not a
+// startup deck. The serif earns that; it also gives us a real italic to accent
+// with instead of putting a gradient on every heading.
+const fontDisplay = Instrument_Serif({
+  subsets: ["latin"],
+  weight: ["400"],
+  style: ["normal", "italic"],
+  variable: "--font-display",
+});
+
 const fontMono = Space_Mono({
   subsets: ["latin"],
   weight: ["400", "700"],
@@ -43,11 +58,11 @@ const fontMono = Space_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: "TubePulse — voice-first creator intelligence",
+    default: "TubePulse — evidence-backed creator intelligence",
     template: "%s",
   },
   description:
-    "A conversational workspace for competitor research, outlier discovery, and evidence-backed video ideas.",
+    "Competitor research with the receipts attached: real video performance, outliers scored against a channel's own median, and ideas that cite the videos behind them.",
   icons: { icon: "/favicon.ico" },
 };
 
@@ -57,7 +72,7 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark h-full" suppressHydrationWarning>
       <body
-        className={`${fontSans.variable} ${fontSerif.variable} ${fontMono.variable} bg-background text-foreground flex min-h-full flex-col font-sans antialiased`}
+        className={`${fontSans.variable} ${fontSerif.variable} ${fontMono.variable} ${fontDisplay.variable} bg-background text-foreground flex min-h-full flex-col font-sans antialiased`}
       >
         {children}
         <Toaster />

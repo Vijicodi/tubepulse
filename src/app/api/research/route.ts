@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { getQuota, spendRefill } from "@/lib/billing/store";
+import { depthFor } from "@/lib/billing/quota";
 import { createServerClient } from "@/lib/supabase/server";
-import { startChannelScrape } from "@/lib/apify/client";
-import { InvalidChannelInputError, parseChannelInput } from "@/lib/youtube/channel-url";
+import { startChannelScrape, startInstagramScrape } from "@/lib/apify/client";
+import { isInvalidTargetError, isPlatform, parseTarget } from "@/lib/platform/parse";
 
 /**
  * POST /api/research — start researching a channel.
@@ -17,6 +19,13 @@ import { InvalidChannelInputError, parseChannelInput } from "@/lib/youtube/chann
 const bodySchema = z.object({
   channel: z.string().min(1, "Enter a channel handle or URL"),
   projectId: z.uuid("Pick a project to research in."),
+  /**
+   * Which platform the selector was on. Only decides the AMBIGUOUS case — a
+   * bare handle like "@nasa", which is valid on both. A pasted URL always wins,
+   * because refusing an instagram.com link to defend a dropdown would be the
+   * app being right at the user's expense.
+   */
+  platform: z.string().optional(),
 });
 
 export async function POST(request: Request) {
@@ -38,11 +47,13 @@ export async function POST(request: Request) {
     );
   }
 
+  const fallback = isPlatform(body.data.platform) ? body.data.platform : "youtube";
+
   let parsed;
   try {
-    parsed = parseChannelInput(body.data.channel);
+    parsed = parseTarget(body.data.channel, fallback);
   } catch (error) {
-    if (error instanceof InvalidChannelInputError) {
+    if (isInvalidTargetError(error)) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
     throw error;
@@ -60,6 +71,20 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Project not found." }, { status: 404 });
   }
 
+  // Checked BEFORE any row is written. A refused scrape must not leave a job
+  // behind, because jobs are what the allowance is counted from — one would
+  // charge someone for work that never started.
+  const quota = await getQuota(supabase, user.id);
+
+  if (!quota.canScrape) {
+    return NextResponse.json(
+      { error: quota.reason, quota },
+      // 402 when they are out of scrapes and money would fix it; 429 when they
+      // have scrapes left but have hit the daily cap and only time will.
+      { status: quota.remaining <= 0 ? 402 : 429 },
+    );
+  }
+
   // Upsert the channel so re-researching updates rather than duplicating.
   const { data: channel, error: channelError } = await supabase
     .from("channels")
@@ -67,8 +92,9 @@ export async function POST(request: Request) {
       {
         owner_id: user.id,
         project_id: project.id,
+        platform: parsed.platform,
         handle: parsed.handle,
-        channel_url: parsed.channelUrl,
+        channel_url: parsed.url,
         title: null,
         subscriber_count: null,
         thumbnail_url: null,
@@ -110,10 +136,23 @@ export async function POST(request: Request) {
   }
 
   try {
-    const run = await startChannelScrape({
-      channelUrl: parsed.channelUrl,
-      jobId: job.id,
-    });
+    // The other half of what Pro buys: a deeper read of every account. The
+    // Instagram figure is lower on purpose — its data costs several times more
+    // per item. See the sums in lib/billing/plans.ts.
+    const maxResults = depthFor(parsed.platform, quota.isPro);
+
+    const run =
+      parsed.platform === "instagram"
+        ? await startInstagramScrape({
+            profileUrl: parsed.url,
+            jobId: job.id,
+            maxResults,
+          })
+        : await startChannelScrape({
+            channelUrl: parsed.url,
+            jobId: job.id,
+            maxResults,
+          });
 
     await supabase
       .from("jobs")
@@ -126,9 +165,20 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: message, jobId: job.id }, { status: 502 });
   }
 
+  // The allowance was already gone when this started, so this scrape came out
+  // of a bought pack. Recorded only now: a scrape that failed to start above
+  // returned early and was never charged for.
+  // Charged to the refill ledger when the allowance is gone, OR when today's
+  // cap is reached and this scrape is continuing on packs the user bought.
+  // `mustSpendRefill` carries both cases so the three spending routes cannot
+  // drift apart on the rule.
+  if (quota.mustSpendRefill) {
+    await spendRefill(user.id, job.id);
+  }
+
   // 202: accepted, not finished.
   return NextResponse.json(
-    { jobId: job.id, channelId: channel.id, handle: parsed.handle },
+    { jobId: job.id, channelId: channel.id, handle: parsed.handle, platform: parsed.platform },
     { status: 202 },
   );
 }

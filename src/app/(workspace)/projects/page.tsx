@@ -16,6 +16,30 @@ export default async function ProjectsPage() {
     getCurrentProject(),
   ]);
 
+  // What each folder holds. Two small queries rather than one per project:
+  // counting in the page would be N+1 round trips, and a projects list is the
+  // first thing loaded after sign-in.
+  const projectIds = (projects ?? []).map((project) => project.id);
+
+  const [{ data: channelRows }, { data: ideaRows }] = projectIds.length
+    ? await Promise.all([
+        supabase.from("channels").select("project_id").in("project_id", projectIds),
+        supabase.from("ideas").select("project_id").in("project_id", projectIds),
+      ])
+    : [{ data: [] }, { data: [] }];
+
+  const tally = (rows: { project_id: string | null }[] | null) => {
+    const counts = new Map<string, number>();
+    for (const row of rows ?? []) {
+      if (!row.project_id) continue;
+      counts.set(row.project_id, (counts.get(row.project_id) ?? 0) + 1);
+    }
+    return counts;
+  };
+
+  const channelCounts = tally(channelRows);
+  const ideaCounts = tally(ideaRows);
+
   return (
     <WorkspacePanel
       title="All projects"
@@ -61,11 +85,16 @@ export default async function ProjectsPage() {
                   </p>
                 )}
                   <p className="text-muted-foreground mt-4 font-mono text-[0.68rem]">
-                    {new Date(project.created_at).toLocaleDateString(undefined, {
-                      year: "numeric",
-                      month: "short",
-                      day: "numeric",
-                    })}
+                    {(() => {
+                      const channels = channelCounts.get(project.id) ?? 0;
+                      const ideas = ideaCounts.get(project.id) ?? 0;
+
+                      // An empty project says so, rather than showing two
+                      // zeroes that read like a loading state.
+                      if (channels === 0) return "Empty — no competitors yet";
+
+                      return `${channels} ${channels === 1 ? "competitor" : "competitors"} · ${ideas} ${ideas === 1 ? "idea" : "ideas"}`;
+                    })()}
                   </p>
                 </button>
               </form>

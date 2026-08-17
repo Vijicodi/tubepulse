@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import { timingSafeEqual } from "node:crypto";
 import { z } from "zod";
-import { failJob, ingestRun } from "@/lib/apify/ingest";
+import {
+  failJob,
+  ingestInstagramRun,
+  ingestRun,
+  ingestTranscript,
+} from "@/lib/apify/ingest";
 import { serverEnv } from "@/lib/env";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -48,17 +53,37 @@ export async function POST(request: Request) {
   const { jobId, eventType, defaultDatasetId } = payload.data;
   const supabase = createAdminClient();
 
+  // Which kind of run finished decides how it is ingested. Read before the
+  // failure branch too, so the error message names the right thing.
+  const { data: job } = await supabase
+    .from("jobs")
+    .select("kind, channel_id")
+    .eq("id", jobId)
+    .maybeSingle();
+
+  // A second read rather than a join: every table in `Database` declares
+  // `Relationships: []`, so supabase-js cannot resolve one. Cheap, and it keeps
+  // that convention intact — see the trap in AGENTS.md.
+  const platform = await platformOf(supabase, job?.channel_id ?? null);
+  const noun = job?.kind === "transcript" ? "Transcript" : "Scrape";
+
   if (eventType !== "ACTOR.RUN.SUCCEEDED") {
     await failJob(
       supabase,
       jobId,
-      `Scrape ${eventType.split(".").pop()?.toLowerCase() ?? "did not succeed"}.`,
+      `${noun} ${eventType.split(".").pop()?.toLowerCase() ?? "did not succeed"}.`,
     );
     return NextResponse.json({ ok: true });
   }
 
   try {
-    await ingestRun(supabase, jobId, defaultDatasetId);
+    if (job?.kind === "transcript") {
+      await ingestTranscript(supabase, jobId, defaultDatasetId);
+    } else if (platform === "instagram") {
+      await ingestInstagramRun(supabase, jobId, defaultDatasetId);
+    } else {
+      await ingestRun(supabase, jobId, defaultDatasetId);
+    }
   } catch (error) {
     await failJob(
       supabase,
@@ -69,6 +94,22 @@ export async function POST(request: Request) {
 
   // 200 regardless — see rule 3 above.
   return NextResponse.json({ ok: true });
+}
+
+/** Which platform a scrape job belongs to. Defaults to the original one. */
+async function platformOf(
+  supabase: ReturnType<typeof createAdminClient>,
+  channelId: string | null,
+) {
+  if (!channelId) return "youtube" as const;
+
+  const { data } = await supabase
+    .from("channels")
+    .select("platform")
+    .eq("id", channelId)
+    .maybeSingle();
+
+  return data?.platform ?? ("youtube" as const);
 }
 
 function secretMatches(candidate: string): boolean {

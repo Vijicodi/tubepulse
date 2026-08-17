@@ -28,6 +28,12 @@ const MUST_BE_EMPTY = [
   "APIFY_WEBHOOK_SECRET",
   "FIRECRAWL_API_KEY",
   "OPENAI_API_KEY",
+  "RAZORPAY_KEY_ID",
+  "NEXT_PUBLIC_RAZORPAY_KEY_ID",
+  "RAZORPAY_KEY_SECRET",
+  "RAZORPAY_PLAN_ID_PRO",
+  "RAZORPAY_PLAN_ID_PRO_YEARLY",
+  "RAZORPAY_WEBHOOK_SECRET",
 ];
 
 /** Keys allowed to hold a non-secret default. */
@@ -36,7 +42,7 @@ const ALLOWED_VALUES = {
   SUPABASE_URL: "https://yourproject.supabase.co",
   APIFY_YOUTUBE_ACTOR: "streamers/youtube-scraper",
   OPENAI_MODEL: "gpt-4o",
-  APP_URL: "http://localhost:3000",
+  APP_URL: "http://localhost:3111",
 };
 
 /** Shapes that are a secret no matter which key they sit under. */
@@ -46,6 +52,8 @@ const SECRET_SHAPES = [
   { name: "an Apify token", re: /^apify_api_[A-Za-z0-9]{10,}/ },
   { name: "a Firecrawl key", re: /^fc-[A-Za-z0-9]{10,}/ },
   { name: "a Stripe key", re: /^(sk|rk|whsec)_[A-Za-z0-9]{16,}/ },
+  { name: "a Razorpay key id", re: /^rzp_(test|live)_[A-Za-z0-9]{8,}/ },
+  { name: "a Razorpay plan id", re: /^plan_[A-Za-z0-9]{8,}/ },
   { name: "a long random secret", re: /^[a-f0-9]{48,}$/i },
 ];
 

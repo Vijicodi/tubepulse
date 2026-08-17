@@ -25,12 +25,67 @@ notice instead of the form.
 
 ---
 
-## 2. Switch the confirmation email from a link to a 6-digit code
+## 2. Custom SMTP — required before templates can be edited
+
+**Do this before section 3.** Since 3 June 2026, Supabase free-tier projects
+created after that date cannot edit auth email templates while using Supabase's
+built-in email sender. The template body is read-only and there is no error
+message explaining why — it simply will not accept keystrokes. Configuring your
+own SMTP unlocks editing on any plan.
+
+The built-in sender is also capped at **2 emails per hour across the whole
+project**, and will only deliver to addresses on the project's team. Both limits
+disappear once custom SMTP is on.
+
+### Gmail as the SMTP provider
+
+Gmail rejects your normal account password here. It needs an *App Password*,
+which only exists once 2-Step Verification is enabled.
+
+1. <https://myaccount.google.com/security> → turn on **2-Step Verification**
+2. <https://myaccount.google.com/apppasswords> → app name `Supabase TubePulse`
+   → **Create**
+3. Copy the 16 characters and **strip the spaces**. Google shows it once.
+
+Then Supabase dashboard → **Authentication → Emails → SMTP Settings**:
+
+| Field | Value |
+| --- | --- |
+| Enable custom SMTP | on |
+| Sender email address | your Gmail address |
+| Sender name | `TubePulse` |
+| Host | `smtp.gmail.com` |
+| Port number | `587` — **not 465** |
+| Minimum interval per user | `10` (the default `60` throttles testing) |
+| Username | your Gmail address |
+| Password | the 16-character App Password, no spaces |
+
+Use **587**, not 465. Port 465 is implicit TLS, which Supabase's auth service
+handles badly, and free (non-Workspace) Gmail accounts are reported not to work
+on it at all. The symptom is a generic `Error sending confirmation email` with
+no detail — the API returns the same unhelpful string. 587 uses STARTTLS and
+works.
+
+The App Password goes in this dashboard field only. It is not an env var and
+must never enter this repo. Google shows it once; if you lose it, delete it and
+make another.
+
+When email fails, the real reason is in the dashboard under **Logs → Auth
+Logs**, not in the browser and not in the API response.
+
+Free Gmail allows roughly 500 messages a day, which is ample for development.
+[Resend](https://resend.com) is the usual choice for production.
+
+---
+
+## 3. Switch the confirmation email from a link to a 6-digit code
 
 By default Supabase emails a **link**. This app asks for a **code**, because a
 code works when the email opens on your phone but you signed up on your laptop.
 
-Supabase dashboard → **Authentication → Emails → Confirm signup**.
+Supabase dashboard → **Authentication → Emails → Templates → Confirm signup**.
+
+If the body will not let you type, section 2 has not been done.
 
 Replace the template body with something that uses `{{ .Token }}` instead of
 `{{ .ConfirmationURL }}`:
@@ -46,13 +101,43 @@ Replace the template body with something that uses `{{ .Token }}` instead of
 verify screen work — without it the email still arrives, but it contains a link
 and the code box will have nothing to accept.
 
-Also check **Authentication → Providers → Email** has *Confirm email* switched
-**on**. If it is off, accounts are created already-confirmed and the code screen
-never appears.
+Also on **Authentication → Sign In / Providers → Email**:
+
+- *Confirm email* must be switched **on**. If it is off, accounts are created
+  already-confirmed and the code screen never appears.
+- **Email OTP Length** must equal `OTP_LENGTH` in `src/lib/auth/otp.ts`
+  (currently **6**). Supabase generates the code and this app only validates it,
+  so if the dashboard says 8 the form is a digit short, the code can never be
+  entered, and the error blames the code rather than the mismatch. Changing one
+  side means changing the other.
 
 ---
 
-## 3. Google sign-in
+## 3b. The password-reset template
+
+Password reset uses a code too, for the same reason sign-up does. That needs a
+SECOND template edited, and it is easy to miss because sign-up will already be
+working.
+
+Supabase dashboard -> **Authentication -> Emails -> Templates -> Reset Password**:
+
+```html
+<h2>Reset your TubePulse password</h2>
+<p>Enter this code to choose a new one:</p>
+<p style="font-size:32px;letter-spacing:8px;font-weight:700">{{ .Token }}</p>
+<p>The code expires in one hour. If you didn't ask for this, ignore this email.</p>
+```
+
+Without it the reset email arrives as a link and the code boxes at
+`/login/reset` have nothing to accept — the exact failure mode section 3
+describes for sign-up.
+
+The code is verified with `type: "recovery"`, not `"email"`. They are different
+token types and do not verify each other.
+
+---
+
+## 4. Google sign-in
 
 Two halves. Do them in this order.
 
@@ -77,7 +162,9 @@ secret → save.
 
 Then **Authentication → URL Configuration**:
 
-- Site URL: `http://localhost:3111` while developing
+- Site URL: `http://localhost:3111` while developing — this must match `APP_URL`
+  in `.env.local`. The port is pinned by the `dev` script in `package.json`, so
+  it is the same on every machine.
 - Redirect URLs: add both
   ```
   http://localhost:3111/auth/callback
@@ -94,8 +181,8 @@ server-side. That route already exists; it needs no configuration.
 One command prints every migration in the right order:
 
 ```bash
-npm run db:sql | clip     # Windows — straight to the clipboard
-npm run db:sql            # or just print it and copy manually
+npm.cmd run db:sql --silent | Set-Clipboard  # Windows PowerShell
+npm run db:sql                               # or just print it and copy manually
 ```
 
 Paste the whole block into the Supabase dashboard **SQL editor** and run it once.
@@ -112,6 +199,10 @@ Migration 0002 creates the trigger that writes a `profiles` row whenever anyone
 signs up, by email or by Google. Without it accounts still work, but display
 names are never stored.
 
+To check the migrations landed without opening the dashboard, query any table
+through the REST API with the service-role key — `404` means the table does not
+exist, `200` means it does.
+
 ---
 
 ## Checking it worked
@@ -122,4 +213,5 @@ names are never stored.
 4. Sign out, then **Continue with Google** — you should land on `/projects`
    without a code, because Google has already verified the address
 
-If step 2 delivers a link rather than a code, section 2 above has not been done.
+If step 2 delivers a link rather than a code, section 3 above has not been done.
+If section 3 would not let you edit the template, section 2 has not been done.

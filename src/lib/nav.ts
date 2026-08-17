@@ -1,4 +1,5 @@
 import {
+  CreditCard,
   FlaskConical,
   Bookmark,
   FileText,
@@ -20,7 +21,7 @@ export interface NavItem {
   href: string;
   label: string;
   icon: LucideIcon;
-  /** Shown under LIVE WORKSPACE at the top of the right-hand panel. */
+  /** One line saying what the page is for. */
   description: string;
   /** True once the feature behind it actually does something. */
   ready: boolean;
@@ -60,21 +61,28 @@ export const NAV_ITEMS: NavItem[] = [
     label: "Idea lab",
     icon: FlaskConical,
     description: "Source-backed concepts generated from current patterns.",
-    ready: false,
+    ready: true,
   },
   {
     href: "/saved-ideas",
     label: "Saved ideas",
     icon: Bookmark,
     description: "Your shortlisted concepts, ready to refine.",
-    ready: false,
+    ready: true,
   },
   {
     href: "/transcript",
     label: "Extract transcript",
     icon: FileText,
     description: "Pull the spoken-word transcript from any public video.",
-    ready: false,
+    ready: true,
+  },
+  {
+    href: "/billing",
+    label: "Billing",
+    icon: CreditCard,
+    description: "Your plan, what it renews at, and how to stop it.",
+    ready: true,
   },
 ];
 

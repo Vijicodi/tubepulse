@@ -31,7 +31,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         onClick={onNavigate}
         className="rounded-lg px-2 py-1 transition-opacity hover:opacity-80"
       >
-        <LogoLockup subtitle="Voice research agent" />
+        <LogoLockup subtitle="Competitor research" />
       </Link>
 
       <ul className="flex flex-1 flex-col gap-0.5">

@@ -1,5 +1,5 @@
 import { Aurora } from "@/components/brand/aurora";
-import { LogoMark } from "@/components/brand/logo";
+import { BrandWordmark } from "@/components/brand/logo";
 
 /**
  * The split login shell.
@@ -17,30 +17,28 @@ export default function LoginLayout({ children }: { children: React.ReactNode })
       <section className="relative isolate flex flex-col justify-between overflow-hidden px-8 py-8 text-white lg:px-14 lg:py-14">
         <Aurora />
 
-        <div className="relative flex items-center gap-2.5">
-          <span className="grid size-10 place-items-center rounded-full bg-white/15 backdrop-blur-sm">
-            <LogoMark className="size-5" />
-          </span>
-          <span className="text-[0.95rem] font-semibold tracking-tight">TubePulse</span>
+        <div className="relative">
+          <BrandWordmark className="max-h-9 w-auto" sizes="140px" priority />
         </div>
 
         <div className="relative max-w-lg py-12 lg:py-0">
           <span className="inline-flex items-center gap-2 rounded-full bg-white/15 px-3 py-1.5 text-xs font-medium backdrop-blur-sm">
-            Voice-first creator intelligence
+            Research that answers back
           </span>
 
           <h2 className="mt-6 text-4xl leading-[1.05] font-semibold tracking-tight text-balance lg:text-5xl">
-            Find the signal. Shape the idea. Say it out loud.
+            Borrow the pattern.
+            Never the video.
           </h2>
 
           <p className="mt-5 max-w-md text-base text-white/80">
-            A conversational workspace for competitor research, outlier discovery,
-            and evidence-backed video ideas.
+            Competitor research, outlier discovery and video ideas that arrive
+            with their homework already done.
           </p>
         </div>
 
         <p className="relative text-xs text-white/65">
-          Private workspaces protected by Supabase authentication
+          Your research stays yours — enforced by row-level security, not by a promise
         </p>
       </section>
 

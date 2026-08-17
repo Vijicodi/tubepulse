@@ -12,6 +12,8 @@ import { publicEnv, isSupabaseConfigured } from "@/lib/public-env";
  * It also decides who may see what:
  *   - not signed in, asking for a workspace page  → /login
  *   - signed in, asking for /login                → /projects
+ *   - signed in, asking for "/"                   → left alone; the landing
+ *     page is public and adapts its own nav
  *
  * Doing the redirect here rather than in each page means a new page cannot
  * forget to protect itself.
@@ -26,6 +28,7 @@ const WORKSPACE_PREFIXES = [
   "/saved-ideas",
   "/transcript",
   "/channels",
+  "/billing",
 ];
 
 export async function middleware(request: NextRequest) {
@@ -75,7 +78,11 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  if (user && (pathname === "/login" || pathname === "/")) {
+  // Only /login bounces a signed-in user onward. "/" is the public landing
+  // page and stays readable while signed in — it swaps its own nav to point at
+  // the workspace. Redirecting it meant the marketing page was unreachable by
+  // the one person most likely to want to look at it.
+  if (user && pathname === "/login") {
     const url = request.nextUrl.clone();
     url.pathname = "/projects";
     url.search = "";

@@ -3,14 +3,16 @@
 import { useState } from "react";
 import { Sidebar } from "./sidebar";
 import { Topbar } from "./topbar";
-import { VoicePanel } from "./voice-panel";
 
 /**
- * The two-panel workspace.
+ * The workspace shell: sidebar and the page itself.
  *
- * Desktop: sidebar | voice agent | live workspace.
- * Below lg the voice panel stacks above the workspace, and the sidebar becomes
- * a drawer — three columns on a phone would make all three unusable.
+ * There WAS a third column here holding a voice agent. It is gone, and the
+ * reasoning is in docs/decisions/0005: typing a channel URL was never the hard
+ * part, so a voice layer on top solved nothing while billing by the minute
+ * against a product priced by the scrape. Removing it gives the page back
+ * roughly 400px, which is the difference between a readable data table and a
+ * cramped one.
  *
  * Client component only because of the drawer's open state; the pages rendered
  * inside `children` stay server components and do their own queries under RLS.
@@ -49,13 +51,9 @@ export function WorkspaceShell({
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar email={email} eyebrow={eyebrow} onOpenNav={() => setNavOpen(true)} />
 
-        <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto p-4 lg:grid-cols-[minmax(340px,26rem)_1fr] lg:overflow-hidden lg:p-5">
-          <div className="min-h-[32rem] lg:min-h-0">
-            <VoicePanel />
-          </div>
-
-          <main className="min-h-0 lg:overflow-y-auto">{children}</main>
-        </div>
+        {/* Native scrolling, deliberately. Lenis is banned under (workspace)/ —
+            fighting a data table to scroll is misery by day three. */}
+        <main className="min-h-0 flex-1 overflow-y-auto p-4 lg:p-6">{children}</main>
       </div>
     </div>
   );

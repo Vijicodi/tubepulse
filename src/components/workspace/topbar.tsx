@@ -40,11 +40,6 @@ export function Topbar({
       </div>
 
       <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-        <span className="bg-muted/50 text-muted-foreground hidden items-center gap-2 rounded-full px-3 py-1.5 text-xs sm:inline-flex">
-          <span className="size-1.5 rounded-full bg-[var(--brand-2)]" aria-hidden />
-          Agent ready
-        </span>
-
         <span className="text-muted-foreground hidden max-w-[16rem] truncate text-xs md:inline">
           {email}
         </span>

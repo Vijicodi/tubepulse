@@ -11,18 +11,21 @@ import {
   InputOTPSlot,
 } from "@/components/ui/input-otp";
 import { resendCode, verifyEmailCode, type AuthResult } from "@/lib/auth/actions";
+import { OTP_LENGTH, OTP_SLOTS } from "@/lib/auth/otp";
 
 const initial: AuthResult = { error: null };
 const RESEND_COOLDOWN = 45;
 
 /**
- * The 6-digit code step.
+ * The email code step.
  *
- * Submits automatically once the sixth digit lands — asking someone to type six
+ * Submits automatically once the last digit lands — asking someone to type the
  * digits and then reach for a button is a pointless extra step, and the code is
  * either right or it is not.
+ *
+ * Every length here comes from OTP_LENGTH. Do not reintroduce a literal.
  */
-export function VerifyPanel({ email }: { email: string }) {
+export function VerifyPanel({ email, next }: { email: string; next: string }) {
   const [code, setCode] = useState("");
   const [verifyState, verifyAction] = useActionState(verifyEmailCode, initial);
   const [resendState, resendAction] = useActionState(resendCode, initial);
@@ -41,11 +44,11 @@ export function VerifyPanel({ email }: { email: string }) {
         <MailCheck className="size-5" aria-hidden />
       </span>
 
-      <h1 className="mt-5 text-3xl font-semibold tracking-tight">Check your email</h1>
+      <h1 className="mt-5 text-3xl font-semibold tracking-tight">Check your inbox</h1>
       <p className="text-muted-foreground mt-2 text-sm">
-        We sent a 6-digit code to{" "}
+        {OTP_LENGTH} digits, just sent to{" "}
         <span className="text-foreground font-medium break-all">{email}</span>.
-        Enter it below to open your workspace.
+        Type them in and the workspace opens.
       </p>
 
       {verifyState.error && (
@@ -60,21 +63,24 @@ export function VerifyPanel({ email }: { email: string }) {
       <form action={verifyAction} id="verify-form" className="mt-6 space-y-5">
         <input type="hidden" name="email" value={email} />
         <input type="hidden" name="code" value={code} />
+        {/* Where to land after verifying. Without this the action falls back
+            to /projects, which is what stranded people who arrived via Go Pro. */}
+        <input type="hidden" name="next" value={next} />
 
         <div className="flex justify-center">
           <InputOTP
-            maxLength={6}
+            maxLength={OTP_LENGTH}
             value={code}
             onChange={setCode}
             onComplete={(value) => {
-              // Submit as soon as the sixth digit arrives.
+              // Submit as soon as the last digit arrives.
               const form = document.getElementById("verify-form") as HTMLFormElement | null;
-              if (value.length === 6) form?.requestSubmit();
+              if (value.length === OTP_LENGTH) form?.requestSubmit();
             }}
-            aria-label="6-digit verification code"
+            aria-label={`${OTP_LENGTH}-digit verification code`}
           >
             <InputOTPGroup className="gap-2">
-              {[0, 1, 2, 3, 4, 5].map((index) => (
+              {OTP_SLOTS.map((index) => (
                 <InputOTPSlot
                   key={index}
                   index={index}
@@ -85,7 +91,7 @@ export function VerifyPanel({ email }: { email: string }) {
           </InputOTP>
         </div>
 
-        <VerifySubmit disabled={code.length !== 6} />
+        <VerifySubmit disabled={code.length !== OTP_LENGTH} />
       </form>
 
       <div className="mt-6 flex items-center justify-between border-t pt-5 text-sm">
@@ -111,7 +117,7 @@ export function VerifyPanel({ email }: { email: string }) {
 
       {sentOnce && cooldown > 0 && !resendState.error && (
         <p className="text-muted-foreground mt-3 text-center text-xs">
-          New code sent. It can take a minute to arrive — check spam too.
+          On its way. Give it a minute — new senders often land in spam.
         </p>
       )}
       {resendState.error && (
@@ -135,7 +141,7 @@ function VerifySubmit({ disabled }: { disabled: boolean }) {
           Verifying
         </>
       ) : (
-        "Verify and continue"
+        "Let me in"
       )}
     </Button>
   );

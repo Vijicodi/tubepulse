@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { getQuota, spendRefill } from "@/lib/billing/store";
 import { gatherWebContext } from "@/lib/firecrawl/enrich";
 import { generateIdeas } from "@/lib/ideas/generate";
 import { selectOutliers } from "@/lib/ideas/score";
@@ -12,6 +13,10 @@ import type { Video } from "@/lib/schemas/youtube";
  * Unlike the scrape, this finishes in seconds, so it can be a normal
  * request/response. If it ever grows past ~30s, move it behind the same jobs
  * pattern rather than raising the timeout.
+ *
+ * IT STILL WRITES A JOB ROW, even though nothing polls it. The allowance is
+ * counted from `jobs`, so a generation with no row is a generation nobody paid
+ * for — an OpenAI call anyone could repeat for free. The row is the charge.
  */
 
 export const maxDuration = 60;
@@ -43,6 +48,19 @@ export async function POST(request: Request) {
 
   if (!channel) {
     return NextResponse.json({ error: "Channel not found." }, { status: 404 });
+  }
+
+  // Checked BEFORE any row is written, exactly as the research route does, and
+  // for the same reason: the allowance is counted from `jobs`, so a refused
+  // generation must not leave a job behind or it bills for work never done.
+  const quota = await getQuota(supabase, user.id);
+
+  if (!quota.canScrape) {
+    return NextResponse.json(
+      { error: quota.reason, quota },
+      // 402 when money would fix it, 429 when only tomorrow will.
+      { status: quota.remaining <= 0 ? 402 : 429 },
+    );
   }
 
   const { data: videoRows } = await supabase
@@ -84,6 +102,34 @@ export async function POST(request: Request) {
 
   const channelTitle = channel.title ?? channel.handle;
 
+  // The row that makes this billable. Written only now — every early return
+  // above refused the work, and refused work is not charged for.
+  const { data: job, error: jobError } = await supabase
+    .from("jobs")
+    .insert({
+      owner_id: user.id,
+      kind: "idea_generation",
+      status: "running",
+      project_id: channel.project_id,
+      channel_id: channel.id,
+      external_run_id: null,
+      error: null,
+    })
+    .select()
+    .single();
+
+  if (jobError || !job) {
+    return NextResponse.json(
+      { error: `Could not queue the job: ${jobError?.message ?? "unknown error"}` },
+      { status: 500 },
+    );
+  }
+
+  /** Mark the job failed so it stops counting against the allowance. */
+  const refund = async (message: string) => {
+    await supabase.from("jobs").update({ status: "failed", error: message }).eq("id", job.id);
+  };
+
   try {
     const webContext = await gatherWebContext(channelTitle, outliers);
     const ideas = await generateIdeas({ channelTitle, outliers, webContext });
@@ -96,21 +142,37 @@ export async function POST(request: Request) {
         title: idea.title,
         angle: idea.angle,
         reasoning: idea.reasoning,
+        script: idea.script,
         confidence: idea.confidence,
         evidence_video_ids: idea.evidenceVideoIds,
+        saved_at: null,
       })),
     );
 
     if (insertError) {
+      // Ideas that were generated but not stored are ideas the user never got.
+      await refund(insertError.message);
       return NextResponse.json(
         { error: `Could not save ideas: ${insertError.message}` },
         { status: 500 },
       );
     }
 
+    await supabase.from("jobs").update({ status: "succeeded" }).eq("id", job.id);
+
+    // The allowance was already gone when this started, so it came out of a
+    // bought pack. Recorded only now: everything that failed above returned
+    // early with the job marked failed, and was never charged.
+    // Charged to the refill ledger when the allowance is gone, OR when today's
+    // cap is reached and this run is continuing on packs the user bought.
+    if (quota.mustSpendRefill) {
+      await spendRefill(user.id, job.id, "idea_generation");
+    }
+
     return NextResponse.json({ count: ideas.length, ideas });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Idea generation failed.";
+    await refund(message);
     return NextResponse.json({ error: message }, { status: 502 });
   }
 }

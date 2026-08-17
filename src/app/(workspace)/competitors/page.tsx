@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { EmptyState, WorkspacePanel } from "@/components/workspace/panel";
 import { CreateProjectForm } from "@/components/workspace/create-project-form";
 import { ResearchForm } from "@/components/workspace/research-form";
@@ -43,14 +44,14 @@ export default async function CompetitorsPage() {
   return (
     <WorkspacePanel
       title="Competitors"
-      description={`Channels tracked in ${project.name}. Paste a handle and the agent reads their last 100 videos.`}
+      description={`Accounts tracked in ${project.name}. Paste a YouTube channel or an Instagram profile.`}
     >
       <ResearchForm projectId={project.id} activeJobId={runningJob?.id ?? null} />
 
       {!channels || channels.length === 0 ? (
         <EmptyState>
-          No competitors yet. Paste a channel above and it will appear here with
-          its real numbers.
+          No competitors yet. Paste a YouTube channel or an Instagram profile
+          above and it will appear here with its real numbers.
         </EmptyState>
       ) : (
         <ul className="grid gap-3 sm:grid-cols-2">
@@ -59,26 +60,34 @@ export default async function CompetitorsPage() {
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <h3 className="truncate font-semibold tracking-tight">
-                    {channel.title ?? channel.handle}
+                    <Link
+                      href={`/channels/${channel.id}`}
+                      className="hover:text-[var(--brand-2)] transition-colors"
+                    >
+                      {channel.title ?? channel.handle}
+                    </Link>
                   </h3>
-                  <p className="text-muted-foreground truncate font-mono text-xs">
-                    {channel.handle}
+                  <p className="text-muted-foreground flex items-center gap-1.5 truncate font-mono text-xs">
+                    <span
+                      className="bg-muted/70 rounded px-1.5 py-0.5 text-[0.6rem] tracking-wide uppercase"
+                    >
+                      {channel.platform === "instagram" ? "Instagram" : "YouTube"}
+                    </span>
+                    <span className="truncate">{channel.handle}</span>
                   </p>
                 </div>
-                <a
-                  href={channel.channel_url}
-                  target="_blank"
-                  rel="noreferrer"
+                <Link
+                  href={`/channels/${channel.id}`}
                   className="text-muted-foreground hover:text-foreground shrink-0 text-xs underline underline-offset-2"
                 >
-                  Open
-                </a>
+                  Profile
+                </Link>
               </div>
 
               <dl className="mt-4 flex gap-6 text-sm">
                 <div>
                   <dt className="text-muted-foreground text-[0.68rem] tracking-wide uppercase">
-                    Subscribers
+                    {channel.platform === "instagram" ? "Followers" : "Subscribers"}
                   </dt>
                   <dd className="font-mono tabular-nums">
                     {channel.subscriber_count === null

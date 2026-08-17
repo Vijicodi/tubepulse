@@ -1,7 +1,30 @@
 import { NextResponse } from "next/server";
 import { getRunState } from "@/lib/apify/client";
-import { failJob, ingestRun } from "@/lib/apify/ingest";
+import {
+  failJob,
+  ingestInstagramRun,
+  ingestRun,
+  ingestTranscript,
+} from "@/lib/apify/ingest";
 import { createServerClient } from "@/lib/supabase/server";
+
+/** True when this job's channel is an Instagram account. */
+async function isInstagram(
+  supabase: Awaited<ReturnType<typeof createServerClient>>,
+  channelId: string | null,
+): Promise<boolean> {
+  if (!channelId) return false;
+
+  // A second read rather than a join — `Relationships: []` on every table means
+  // supabase-js cannot resolve one.
+  const { data } = await supabase
+    .from("channels")
+    .select("platform")
+    .eq("id", channelId)
+    .maybeSingle();
+
+  return data?.platform === "instagram";
+}
 
 /**
  * POST /api/jobs/[id]/sync — ask Apify directly whether this run finished.
@@ -35,7 +58,7 @@ export async function POST(
 
   const { data: job } = await supabase
     .from("jobs")
-    .select("id, status, external_run_id")
+    .select("id, kind, status, external_run_id, channel_id")
     .eq("id", id)
     .single();
 
@@ -57,12 +80,23 @@ export async function POST(
 
     if (run.status === "SUCCEEDED") {
       if (!run.datasetId) throw new Error("The run finished without a dataset.");
-      await ingestRun(supabase, id, run.datasetId);
+
+      // Same dispatch as the webhook, and it must stay the same — these two
+      // paths diverging is the bug that only reproduces on one machine.
+      if (job.kind === "transcript") {
+        await ingestTranscript(supabase, id, run.datasetId);
+      } else if (await isInstagram(supabase, job.channel_id)) {
+        await ingestInstagramRun(supabase, id, run.datasetId);
+      } else {
+        await ingestRun(supabase, id, run.datasetId);
+      }
+
       return NextResponse.json({ status: "succeeded" });
     }
 
     if (["FAILED", "ABORTED", "TIMED-OUT", "TIMING-OUT"].includes(run.status)) {
-      const message = `Scrape ${run.status.toLowerCase().replace("-", " ")}.`;
+      const noun = job.kind === "transcript" ? "Transcript" : "Scrape";
+      const message = `${noun} ${run.status.toLowerCase().replace("-", " ")}.`;
       await failJob(supabase, id, message);
       return NextResponse.json({ status: "failed", error: message });
     }
