@@ -63,7 +63,13 @@ export const metadata: Metadata = {
   },
   description:
     "Competitor research with the receipts attached: real video performance, outliers scored against a channel's own median, and ideas that cite the videos behind them.",
-  icons: { icon: "/favicon.ico" },
+  icons: {
+    icon: [
+      { url: "/favicon.ico", sizes: "any" },
+      { url: "/icon.png", type: "image/png" },
+    ],
+    apple: "/apple-icon.png",
+  },
 };
 
 export default function RootLayout({
