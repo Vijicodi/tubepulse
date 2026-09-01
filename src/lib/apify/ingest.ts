@@ -107,7 +107,25 @@ export async function ingestRun(
 
   await supabase
     .from("jobs")
-    .update({ status: "succeeded", error: null })
+    .update({
+      status: "succeeded",
+      error: null,
+      // Counts, not money — see migration 0012. What was actually pulled,
+      // which is not the same as what was requested: an actor can return
+      // fewer items than asked for, and a customer should be billed for the
+      // former.
+      usage: { videosScraped: scored.length },
+      trail: [
+        {
+          step: "collect",
+          detail: `Pulled ${scored.length} videos${
+            rejected.length > 0 ? `, dropped ${rejected.length} unusable` : ""
+          }`,
+          ms: 0,
+        },
+        { step: "score", detail: `Scored against the channel median`, ms: 0 },
+      ],
+    })
     .eq("id", jobId);
 
   return { videoCount: scored.length, rejectedCount: rejected.length };
@@ -198,7 +216,26 @@ export async function ingestTranscript(
 
   await supabase
     .from("jobs")
-    .update({ status: "succeeded", error: null })
+    .update({
+      status: "succeeded",
+      error: null,
+      // Audio length is not reported by the captions actor, so it is estimated
+      // from the word count at roughly 150 words a minute — a normal speaking
+      // pace. The breakdown is labelled an estimate for exactly this reason.
+      usage: { audioMinutes: Math.max(transcript.wordCount / 150, 0.1) },
+      trail: [
+        {
+          step: "captions",
+          detail: `Extracted ${transcript.wordCount.toLocaleString("en-US")} words`,
+          ms: 0,
+        },
+        {
+          step: "summarise",
+          detail: summary !== null ? "Summarised the transcript" : "Summary unavailable",
+          ms: 0,
+        },
+      ],
+    })
     .eq("id", jobId);
 
   return { wordCount: transcript.wordCount, summarised: summary !== null };
@@ -295,7 +332,27 @@ export async function ingestInstagramRun(
 
   await supabase
     .from("jobs")
-    .update({ status: "succeeded", error: null })
+    .update({
+      status: "succeeded",
+      error: null,
+      // postsScraped, not videosScraped: Instagram data costs four to six
+      // times as much per item, and the rate table prices them separately.
+      usage: { postsScraped: scored.length },
+      trail: [
+        {
+          step: "collect",
+          detail: `Pulled ${scored.length} posts${
+            rejected.length > 0 ? `, dropped ${rejected.length} unusable` : ""
+          }`,
+          ms: 0,
+        },
+        {
+          step: "score",
+          detail: "Scored reels and posts in separate pools",
+          ms: 0,
+        },
+      ],
+    })
     .eq("id", jobId);
 
   return { videoCount: scored.length, rejectedCount: rejected.length };

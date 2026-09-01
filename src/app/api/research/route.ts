@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getQuota, spendRefill } from "@/lib/billing/store";
-import { depthFor } from "@/lib/billing/quota";
+import { canUseInstagram, depthFor } from "@/lib/billing/quota";
 import { createServerClient } from "@/lib/supabase/server";
 import { startChannelScrape, startInstagramScrape } from "@/lib/apify/client";
 import { isInvalidTargetError, isPlatform, parseTarget } from "@/lib/platform/parse";
@@ -76,6 +76,21 @@ export async function POST(request: Request) {
   // charge someone for work that never started.
   const quota = await getQuota(supabase, user.id);
 
+  // INSTAGRAM IS GATED, and it is gated HERE rather than only in the UI. A
+  // hidden button is not an access control: this endpoint is reachable with a
+  // session and a POST body, and an Instagram run costs 4-6x a YouTube one.
+  if (parsed.platform === "instagram" && !canUseInstagram(quota.planKey)) {
+    return NextResponse.json(
+      {
+        error:
+          "Instagram research is on Studio and Max. Your plan covers YouTube.",
+        quota,
+      },
+      // 402: money fixes this, and saying so is more useful than a bare 403.
+      { status: 402 },
+    );
+  }
+
   if (!quota.canScrape) {
     return NextResponse.json(
       { error: quota.reason, quota },
@@ -139,7 +154,7 @@ export async function POST(request: Request) {
     // The other half of what Pro buys: a deeper read of every account. The
     // Instagram figure is lower on purpose — its data costs several times more
     // per item. See the sums in lib/billing/plans.ts.
-    const maxResults = depthFor(parsed.platform, quota.isPro);
+    const maxResults = depthFor(parsed.platform, quota.planKey);
 
     const run =
       parsed.platform === "instagram"

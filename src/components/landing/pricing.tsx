@@ -1,18 +1,17 @@
 import { ArrowUpRight, Infinity as InfinityIcon } from "lucide-react";
 import { BrandWordmark } from "@/components/brand/logo";
 import { ProPlans } from "@/components/billing/pro-plans";
-import { RefillCards } from "@/components/billing/refill-cards";
 import { MagneticButton } from "@/components/landing/magnetic-button";
 import { OrbitField } from "@/components/landing/orbit-field";
 import { SiteNav } from "@/components/landing/site-nav";
 import { TiltCard } from "@/components/landing/tilt-card";
 import {
   type BillingCycle,
+  type PaidPlanKey,
+  HIGHLIGHTED_PLAN,
   PLANS,
-  PRO_PRICES,
-  TOPUP_LIST,
-  formatRupees,
-  perScrapeRupees,
+  PLAN_PRICES,
+  formatUsd,
   spellOutCapitalised,
   yearlySavingPercent,
 } from "@/lib/billing/plans";
@@ -48,7 +47,7 @@ import {
  *   /billing                       the signed-in management screen
  */
 
-const PRO = PLANS.pro;
+const PRO = PLANS[HIGHLIGHTED_PLAN];
 const FREE = PLANS.free;
 
 /** Sign up, then come back here rather than dumping them in the workspace. */
@@ -60,48 +59,57 @@ const SIGNUP_HREF = "/login?mode=signup&next=/pricing";
 
 const FAQS = [
   {
-    q: "What exactly is one scrape?",
-    a: `One full pull of a channel's catalogue — up to ${PRO.videosPerScrape} videos on Pro, scored, with ideas generated on top. Re-running the same channel next month to catch new uploads counts again, because it is genuinely another pull.`,
+    q: "What exactly is one run?",
+    a: `One billable action: a full pull of a channel's catalogue — up to ${PRO.videosPerRun} videos on ${PRO.name}, scored — or a generation of ideas from a channel already pulled, or a transcript. All three cost real money to run, so all three count. Re-running the same channel next month counts again, because it is genuinely another pull.`,
   },
   {
-    q: `Why ${PRO.scrapes} and not fifty?`,
-    a: "Because every scrape spends real money at Apify and OpenAI, and a number we cannot afford is a number we would quietly claw back later through worse results. Fifteen deliberate channel reads a month is more competitor research than most people do in a year.",
+    q: `Why ${PRO.runs} runs and not five hundred?`,
+    a: `Because every run spends real money at Apify and OpenAI, and a number we cannot afford is a number we would quietly claw back later through worse results. The allowances are sized to what each kind of creator actually gets through in a month — ${PLANS.creator.runs} for one channel, ${PLANS.studio.runs} for a few, ${PLANS.agency.runs} for tracking a whole field at once.`,
   },
   {
     q: "Why is there a daily cap on a paid plan?",
-    a: `The same reason your AI subscription has one. Pro allows ${PRO.dailyCap} scrapes a day inside the monthly ${PRO.scrapes}, so one enthusiastic afternoon cannot drain the month. It applies to the plan's scrapes only — a refill you have bought outright is yours to spend the same day. The cap is on this page rather than in an email you get afterwards.`,
+    a: `The same reason your AI subscription has one. ${PRO.name} allows ${PRO.dailyCap} runs a day inside the monthly ${PRO.runs}, so one enthusiastic afternoon cannot drain the month. Every tier has a cap sized to its own allowance. It is on this page rather than in an email you get afterwards.`,
   },
   {
     q: "Is yearly actually cheaper?",
-    a: `Yes, by ${yearlySavingPercent()}% — ${formatRupees(PRO_PRICES.yearly.priceRupees)} for the year against ${formatRupees(PRO_PRICES.monthly.priceRupees * 12)} paid monthly. Twelve months for the price of ten. The page shows both the per-month figure and the amount that actually leaves your account, because quoting only the first is how people get surprised at checkout.`,
+    a: `Yes, by ${yearlySavingPercent()}% — ${formatUsd(PLAN_PRICES[HIGHLIGHTED_PLAN].yearly.priceUsd)} for the year against ${formatUsd(PLAN_PRICES[HIGHLIGHTED_PLAN].monthly.priceUsd * 12)} paid monthly. Twelve months for the price of ten. The page shows both the per-month figure and the amount that actually leaves your account, because quoting only the first is how people get surprised at checkout.`,
+  },
+  {
+    q: "What is the difference between the models?",
+    a: `${PLANS.creator.name} runs a fast model built for volume — quick, cheap, and good at finding patterns. ${PLANS.studio.name} and ${PLANS.agency.name} run an advanced reasoning model that is noticeably better on ambiguous niches, where the right angle is not obvious from the titles alone. It is stated here rather than discovered later.`,
+  },
+  {
+    q: "Why is Instagram only on the higher tiers?",
+    a: `Because Instagram data costs four to six times what YouTube data costs, per item. Putting it on every tier would mean cutting everyone's allowance to pay for it. It sits on ${PLANS.studio.name} and ${PLANS.agency.name}, where the price covers it honestly.`,
   },
   {
     q: "How do I pay?",
-    a: "Razorpay — UPI Autopay, cards, netbanking or wallets. It renews itself each month until you stop it. Prices are in rupees and settle to an Indian account, which is the entire reason this is not Stripe.",
+    a: "Razorpay — cards, UPI Autopay, netbanking or wallets. It renews itself until you stop it. Card details are entered in Razorpay's own window and never reach us.",
   },
   {
-    q: "Do unused scrapes roll over?",
-    a: `No, and pretending otherwise would be the kind of small print this page is trying to avoid. The monthly allowance resets on your billing date. Refill packs are different — you bought those outright, so they never expire.`,
+    q: "Do unused runs roll over?",
+    a: "No, and pretending otherwise would be the kind of small print this page is trying to avoid. The monthly allowance resets on your billing date.",
   },
   {
-    q: "Why are refills more expensive per scrape?",
-    a: `Because the subscription should always be the better deal. Pro works out at ${formatRupees(Math.round(perScrapeRupees(PRO)))} a scrape and a refill at about ${formatRupees(Math.round(perScrapeRupees(TOPUP_LIST[0])))}. If a refill were cheaper we would just be teaching you to cancel the plan and buy packs instead, which helps nobody.`,
+    q: "Can I change plans later?",
+    a: `Yes, in both directions, from the billing page. Moving up takes effect when the new plan starts; moving down leaves you on what you paid for until that period ends. Nothing is lost either way — your projects and saved ideas are yours regardless of tier.`,
   },
   {
     q: "Can I cancel?",
-    a: "Any time, from the billing page, in two clicks. That also switches off the autopay mandate at Razorpay, so nothing further can be charged — you are never asked to cancel the same thing twice. You keep Pro until the period you already paid for runs out, then your projects and saved ideas stay readable on the free tier.",
+    a: `Any time, from the billing page, in two clicks. That also switches off the autopay mandate at Razorpay, so nothing further can be charged — you are never asked to cancel the same thing twice. You keep your plan until the period you already paid for runs out, then your projects and saved ideas stay readable on ${FREE.name}.`,
   },
 ];
 
 export function Pricing({
   signedIn = false,
-  isPro = false,
+  currentPlan = null,
   canCheckout = false,
   canYearly = false,
   initialCycle = "monthly",
 }: {
   signedIn?: boolean;
-  isPro?: boolean;
+  /** The tier they are already on, so its card says so instead of selling it. */
+  currentPlan?: PaidPlanKey | null;
   /** False when Razorpay keys are missing, so the CTA points elsewhere. */
   canCheckout?: boolean;
   /** False when the yearly Razorpay plan is not configured; hides the toggle. */
@@ -133,7 +141,7 @@ export function Pricing({
         >
           <p className="label-mono mb-8">Pricing</p>
           <h1 className="font-display text-[clamp(2.8rem,7vw,6rem)]">
-            {spellOutCapitalised(FREE.scrapes)} free scrapes.
+            {spellOutCapitalised(FREE.runs)} free runs a month.
             <br />
             <span className="display-accent text-accent-gradient">
               Then a very reasonable conversation.
@@ -141,9 +149,9 @@ export function Pricing({
           </h1>
           <div className="rule-brand mx-auto mt-11 w-40" aria-hidden />
           <p className="text-muted-foreground mx-auto mt-9 max-w-xl text-lg leading-relaxed">
-            Plans count scrapes, not seats, because a scrape is the thing that
-            actually costs money to run. Monthly or yearly, one upgrade, and a
-            cancel button that works on the first click.
+            Plans count research runs, because a run is the thing that actually
+            costs money. Monthly or yearly, one upgrade, and a cancel button
+            that works on the first click.
           </p>
         </div>
       </section>
@@ -152,7 +160,7 @@ export function Pricing({
       <section className="px-6 pb-24">
         <ProPlans
           signedIn={signedIn}
-          isPro={isPro}
+          currentPlan={currentPlan}
           canCheckout={canCheckout}
           canYearly={canYearly}
           initialCycle={initialCycle}
@@ -168,37 +176,6 @@ export function Pricing({
         </p>
       </section>
 
-      {/* ----------------------------------------------------------- refills */}
-      <section className="border-border/40 border-t px-6 py-24">
-        <div className="mx-auto max-w-4xl">
-          <div data-reveal="up" data-stagger className="mb-10 text-center">
-            <p className="label-mono mb-5">Ran out early</p>
-            <h2 className="font-display text-[clamp(2rem,4vw,3.2rem)]">
-              Refills, for the weeks
-              <span className="display-accent"> you get obsessive.</span>
-            </h2>
-          </div>
-
-          <div data-reveal="up" data-stagger>
-            <RefillCards
-              signedIn={signedIn}
-              canCheckout={canCheckout}
-              tone="landing"
-            />
-          </div>
-
-          <p
-            className="text-muted-foreground/70 mx-auto mt-8 max-w-xl text-center text-xs leading-relaxed"
-            data-reveal="up"
-          >
-            Deliberately a little dearer per scrape than the plan
-            ({formatRupees(Math.round(perScrapeRupees(PRO)))} on Pro). The
-            subscription should always be the better deal, otherwise we would be
-            teaching you to cancel it. Packs never expire.
-          </p>
-        </div>
-      </section>
-
       {/* --------------------------------------------------------- fair use */}
       <section className="border-border/40 border-t px-6 py-28">
         <div className="mx-auto grid max-w-5xl items-center gap-14 lg:grid-cols-[1fr_1fr]">
@@ -209,15 +186,14 @@ export function Pricing({
               <span className="display-accent"> and we are not hiding it.</span>
             </h2>
             <p className="text-muted-foreground mt-8 leading-relaxed">
-              Pro allows {PRO.dailyCap} scrapes a day inside the monthly{" "}
-              {PRO.scrapes}. Not because we enjoy limits, but because every
-              scrape spends real money at Apify and OpenAI, and one determined
+              {PRO.name} allows {PRO.dailyCap} runs a day inside the monthly{" "}
+              {PRO.runs}. Not because we enjoy limits, but because every
+              run spends real money at Apify and OpenAI, and one determined
               afternoon can drain a month.
             </p>
             <p className="text-muted-foreground mt-4 leading-relaxed">
-              It applies to the plan only. A refill you have bought is yours to
-              use the same day — selling you scrapes and then asking you to come
-              back tomorrow would be a strange way to take money.
+              Every tier has one, sized to its allowance, so a month cannot be
+              drained in a couple of afternoons.
             </p>
             <p className="text-muted-foreground mt-5 leading-relaxed">
               Your AI subscription works the same way. The difference is that
@@ -227,12 +203,13 @@ export function Pricing({
 
           <div data-reveal="right" className="group/tilt">
             <TiltCard className="p-9">
-              <p className="label-mono mb-8">What Pro actually gets you</p>
+              <p className="label-mono mb-8">What {PRO.name} gets you</p>
               <dl className="space-y-6">
                 {[
-                  { k: "Scrapes a month", v: String(PRO.scrapes) },
-                  { k: "Scrapes a day", v: String(PRO.dailyCap) },
-                  { k: "Videos per scrape", v: String(PRO.videosPerScrape) },
+                  { k: "Runs a month", v: String(PRO.runs) },
+                  { k: "Runs a day", v: String(PRO.dailyCap) },
+                  { k: "Videos per run", v: String(PRO.videosPerRun) },
+                  { k: "Instagram posts per run", v: String(PRO.postsPerRun) },
                   { k: "Ideas per generation", v: "up to 8" },
                 ].map((row) => (
                   <div
@@ -289,7 +266,7 @@ export function Pricing({
           data-stagger
         >
           <h2 className="font-display text-[clamp(2.4rem,6vw,5rem)]">
-            {spellOutCapitalised(FREE.scrapes)} scrapes is plenty
+            {spellOutCapitalised(FREE.runs)} runs a month is plenty
             <br />
             <span className="display-accent text-accent-gradient">
               to catch us bluffing.
@@ -302,8 +279,8 @@ export function Pricing({
             </MagneticButton>
           </div>
           <p className="text-muted-foreground/70 mx-auto mt-10 max-w-lg text-xs leading-relaxed">
-            The free tier needs no card. Pro renews at{" "}
-            {formatRupees(PRO.priceRupees)} a month and can be cancelled from the
+            The free tier needs no card. {PRO.name} renews at{" "}
+            {formatUsd(PRO.priceUsd)} a month and can be cancelled from the
             billing page at any time, which also stops the mandate at Razorpay.
           </p>
         </div>
@@ -313,7 +290,7 @@ export function Pricing({
         <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-8 sm:flex-row">
           <BrandWordmark className="max-h-8 w-auto" />
           <p className="text-muted-foreground text-xs">
-            Prices in Indian rupees, inclusive of applicable taxes. Payments and
+            Prices in US dollars, inclusive of applicable taxes. Payments and
             autopay handled by Razorpay.
           </p>
         </div>

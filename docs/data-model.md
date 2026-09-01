@@ -289,3 +289,67 @@ Which one a subscriber is on is not derivable from anything else stored —
 `razorpay_plan_id` is opaque — so without this column the billing page could not
 say "renews yearly". It is set at checkout, and recovered from the
 subscription's own notes on the webhook and sync paths.
+
+## calendar_slots
+
+Added in 0014. One row per scheduled slot: an idea, a date, and a status
+(`planned` / `published` / `dropped`). Studio and Max only, gated at the server
+action rather than in RLS — a policy cannot read a plan without dragging
+billing into every query, and the write is the place where entitlement matters.
+
+**Why a table and not a column on `ideas`.** 0006 put `saved_at` directly on
+`ideas`, and that reasoning was sound: a saved idea is the same idea with a
+decision attached. Scheduling differs in a way that matters — the same idea can
+legitimately be planned twice (a main video and a short cut from it), and a
+column cannot hold two dates. A slot also has its own lifecycle, so it gets its
+own row.
+
+**Why `scheduled_for` is a `date`, not a `timestamptz`.** A content calendar
+answers "what am I making this week", never "at 14:32". A timestamp would drag
+timezone conversion into every read, and a slot planned for Tuesday would show
+as Monday for anyone west of UTC. Everything downstream keys off a `YYYY-MM-DD`
+string for the same reason: putting that value through `new Date()` makes it
+midnight UTC and moves the day for half the world.
+
+**`status` is text with a check, not an enum.** Adding a state later is then an
+ordinary migration rather than an `ALTER TYPE`, which cannot run inside a
+transaction block. 0013 is the cautionary tale — it had to be pasted in two
+halves.
+
+**`idea_id` cascades on delete.** A slot whose idea is gone is an empty box on a
+calendar with no way to find out what it was for.
+
+## promo_codes.tier_percents and tier_offer_ids
+
+Added in 0013, for one code that discounts each tier differently — Creator 30%,
+Studio 40%, Max 50%, across the first two monthly cycles.
+
+**Why not three separate codes.** Telling an invitee "use LAUNCH30 unless you
+pick Studio, then LAUNCH40" is a support conversation and an invitation that
+reads like homework. One code that does the right thing is the product.
+
+**Why offer ids are a map.** A Razorpay Offer carries its own fixed discount, so
+three percentages need three offers, chosen by the tier being bought. Each one
+must be created with a **two-cycle limit** or it discounts every renewal
+forever. A tiered code naming a percent for a tier but no offer for it is
+refused at validation rather than falling back to the generic offer, which
+would attach the wrong discount.
+
+**The renewal price is NOT read from `renews_at_cents` for subscriptions.** That
+column can hold one number and a tiered code has three; reading it quoted every
+tier the same figure, so Creator was told it renews at $49 when it renews at
+$19. The renewal price is now the undiscounted price of the tier actually being
+bought, which the caller already knows.
+
+## subscriptions promo columns
+
+`promo_code`, `promo_cycles_total`, `promo_cycles_remaining` and
+`promo_renews_at_cents`, added in 0013, drive the discount countdown on the
+billing page. Frozen at checkout rather than read back off `promo_codes`, so a
+code edited afterwards cannot retroactively change what a customer was told
+they would pay.
+
+`promo_cycles_remaining` is decremented by the `subscription.charged` webhook —
+**after** that delivery wins its idempotency claim, never per delivery. Razorpay
+retries aggressively, and a decrement per delivery would burn a customer's two
+discounted months in an afternoon.

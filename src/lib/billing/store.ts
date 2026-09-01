@@ -16,7 +16,7 @@ import type {
   SubscriptionRow,
 } from "@/lib/supabase/types";
 import { toSubscriptionStatus, type RazorpaySubscription } from "@/lib/razorpay/schemas";
-import type { BillingCycle, Topup } from "./plans";
+import { toPaidPlanKey, type BillingCycle, type PaidPlanKey } from "./plans";
 import { billingStateFrom, FREE_STATE, type BillingState } from "./status";
 
 /**
@@ -97,21 +97,45 @@ export async function recordSubscription(
   ownerId: string,
   subscription: RazorpaySubscription,
   /**
-   * Which cycle this is. Passed at checkout, where we know; read back from the
+   * Which TIER this is. Passed at checkout, where we know; read back from the
    * subscription's own notes on webhook and sync paths, where we do not.
-   * Razorpay's plan id is opaque, so without one of those two the billing page
-   * could never say "renews yearly".
+   * Razorpay's plan id is opaque — mapping it back would mean six env lookups
+   * and a wrong answer the moment a plan object is recreated.
+   */
+  planKey?: PaidPlanKey,
+  /**
+   * Which cycle this is. Same story as the tier: known at checkout, recovered
+   * from the notes elsewhere. Without one of those the billing page could never
+   * say "renews yearly".
    */
   cycle?: BillingCycle,
+  /**
+   * The discount attached at checkout, when there was one.
+   *
+   * Known ONLY on the checkout path. Webhooks and sync carry no promo data, so
+   * this is spread in conditionally like `plan_key` — writing nulls from a
+   * webhook would wipe a live discount and reset the customer's countdown to
+   * nothing halfway through their two months.
+   */
+  promo?: {
+    code: string;
+    cycles: number;
+    renewsAtCents: number | null;
+  },
 ): Promise<void> {
   const status = toSubscriptionStatus(subscription.status);
   const resolvedCycle = cycle ?? cycleFromNotes(subscription);
+  const resolvedPlan = planKey ?? planKeyFromNotes(subscription);
   const settled = status === "cancelled" || status === "completed" || status === "expired";
 
   const { error } = await writeClient().from("subscriptions").upsert(
     {
       owner_id: ownerId,
-      plan_key: "pro",
+      // Only write the tier when it is actually known. Defaulting here would
+      // silently move a paying Max customer onto Creator the first time a
+      // webhook arrived without its note — the column's own default covers a
+      // genuinely new row.
+      ...(resolvedPlan ? { plan_key: resolvedPlan } : {}),
       razorpay_subscription_id: subscription.id,
       razorpay_customer_id: subscription.customer_id ?? null,
       razorpay_plan_id: subscription.plan_id ?? null,
@@ -120,6 +144,14 @@ export async function recordSubscription(
       current_period_end: subscription.current_end ?? subscription.ended_at ?? null,
       ...(settled
         ? { cancel_at_period_end: false, cancelled_at: subscription.ended_at ?? new Date().toISOString() }
+        : {}),
+      ...(promo
+        ? {
+            promo_code: promo.code,
+            promo_cycles_total: promo.cycles,
+            promo_cycles_remaining: promo.cycles,
+            promo_renews_at_cents: promo.renewsAtCents,
+          }
         : {}),
     },
     { onConflict: "owner_id" },
@@ -132,6 +164,20 @@ export async function recordSubscription(
 function cycleFromNotes(subscription: RazorpaySubscription): BillingCycle | null {
   const note = subscription.notes?.billing_cycle;
   return note === "monthly" || note === "yearly" ? note : null;
+}
+
+/**
+ * The tier stamped in the subscription's notes at creation, if it is there.
+ *
+ * Returns null rather than a default for anything unrecognised: a subscription
+ * created before four-tier pricing carries `plan_key: "pro"`, which is not a
+ * plan any more, and guessing which of the four it meant would be inventing a
+ * price somebody is being charged.
+ */
+function planKeyFromNotes(subscription: RazorpaySubscription): PaidPlanKey | null {
+  // Notes come back as unknown values — Razorpay will echo whatever was sent.
+  const note = subscription.notes?.plan_key;
+  return typeof note === "string" ? toPaidPlanKey(note) : null;
 }
 
 /** Flag a row as cancelling. Called only after Razorpay confirms the cancel. */
@@ -194,50 +240,6 @@ export async function getBillingState(): Promise<BillingState> {
   return billingStateFrom(await getSubscriptionRow());
 }
 
-/**
- * Grant a paid refill pack.
- *
- * IDEMPOTENT BY DATABASE CONSTRAINT, not by checking first. Three paths can
- * learn that the same pack was paid for — the browser handler, the `order.paid`
- * webhook, and a manual sync — and a read-then-write would let two of them
- * interleave and grant the pack twice. Instead all three insert, and the unique
- * index on `razorpay_payment_id` makes the second and third collide.
- *
- * Returns true if this call is the one that actually granted the credits.
- *
- * `amountPaise` is what Razorpay says was charged, stored rather than derived:
- * the catalogue price can change later and a receipt must not change with it.
- */
-export async function grantTopupCredits(
-  {
-    ownerId,
-    topup,
-    orderId,
-    paymentId,
-    amountPaise,
-  }: {
-    ownerId: string;
-    topup: Topup;
-    orderId: string | null;
-    paymentId: string;
-    amountPaise: number;
-  },
-): Promise<boolean> {
-  const { error } = await writeClient().from("scrape_credits").insert({
-    owner_id: ownerId,
-    credits: topup.scrapes,
-    source: topup.key,
-    razorpay_order_id: orderId,
-    razorpay_payment_id: paymentId,
-    amount_paise: amountPaise,
-  });
-
-  // 23505 = unique_violation on razorpay_payment_id. Already granted.
-  if (error && error.code === "23505") return false;
-  if (error) throw new Error(`Could not grant the refill: ${error.message}`);
-  return true;
-}
-
 /** How many bought scrapes the signed-in user has left. Respects RLS. */
 export async function getCreditBalance(): Promise<number> {
   const user = await getUser();
@@ -288,7 +290,7 @@ export async function getQuota(
 
   // The allowance is anchored to the day the subscription started, so a late
   // signup does not get two months of scrapes for one payment.
-  const subscriptionStart = state.isPro && row?.created_at ? new Date(row.created_at) : null;
+  const subscriptionStart = state.isPaid && row?.created_at ? new Date(row.created_at) : null;
   const periodStart = periodStartFor(now, subscriptionStart);
   const resetsAt = subscriptionStart
     ? periodEndFor(periodStart, new Date(subscriptionStart).getUTCDate())
@@ -325,7 +327,7 @@ export async function getQuota(
   ]);
 
   return computeQuota({
-    isPro: state.isPro,
+    planKey: state.planKey,
     scrapesThisPeriod,
     scrapesToday,
     refills: balance.data?.balance ?? 0,
@@ -362,4 +364,46 @@ export async function spendRefill(
   });
 
   if (error) throw new Error(`Could not record the scrape spend: ${error.message}`);
+}
+
+
+/**
+ * One discounted invoice has been paid — count it down.
+ *
+ * Called ONLY from the `subscription.charged` webhook, and only after that
+ * delivery has won its idempotency claim. Razorpay retries aggressively, and a
+ * decrement that ran per delivery rather than per claimed event would burn a
+ * customer's two discounted months in an afternoon of retries.
+ *
+ * Floors at zero rather than going negative: the countdown reads `<= 0` as
+ * "over", and a negative would render as nonsense on the billing page.
+ *
+ * Deliberately does NOT clear `promo_code`. Knowing which code somebody used
+ * stays useful after the discount ends — for support, and for counting what a
+ * launch actually converted.
+ */
+export async function consumePromoCycle(ownerId: string): Promise<void> {
+  const supabase = writeClient();
+
+  const { data } = await supabase
+    .from("subscriptions")
+    .select("promo_cycles_remaining")
+    .eq("owner_id", ownerId)
+    .maybeSingle();
+
+  const remaining = data?.promo_cycles_remaining ?? null;
+  if (remaining === null || remaining <= 0) return;
+
+  const { error } = await supabase
+    .from("subscriptions")
+    .update({ promo_cycles_remaining: remaining - 1 })
+    .eq("owner_id", ownerId);
+
+  // A failed decrement must not fail the webhook: Razorpay would retry the
+  // whole delivery, and the subscription row itself is already correct. The
+  // worst case is a countdown one cycle behind, which is visible and harmless
+  // next to a retry storm.
+  if (error) {
+    console.error("[promo] could not decrement the cycle count", error.message);
+  }
 }

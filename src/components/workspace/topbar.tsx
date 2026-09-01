@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { LogOut, Menu } from "lucide-react";
+import { LogOut, Menu, PanelLeft, PanelLeftClose } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { signOut } from "@/lib/auth/actions";
 import { navItemFor } from "@/lib/nav";
@@ -10,10 +10,15 @@ export function Topbar({
   email,
   eyebrow,
   onOpenNav,
+  sidebarCollapsed = false,
+  onToggleSidebar,
 }: {
   email: string;
   eyebrow: string;
   onOpenNav?: () => void;
+  /** Desktop only. Drives the toggle's icon and its label. */
+  sidebarCollapsed?: boolean;
+  onToggleSidebar?: () => void;
 }) {
   const pathname = usePathname();
   const current = navItemFor(pathname);
@@ -30,6 +35,28 @@ export function Topbar({
         >
           <Menu className="size-5" aria-hidden />
         </Button>
+
+        {/* Desktop collapse. Hidden below lg, where the sidebar is a drawer and
+            there is nothing to collapse. The label says what the button DOES
+            rather than what it shows, which is what a screen reader needs, and
+            `aria-expanded` carries the state instead of a second sentence. */}
+        {onToggleSidebar && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onToggleSidebar}
+            aria-label={sidebarCollapsed ? "Show sidebar" : "Hide sidebar"}
+            aria-expanded={!sidebarCollapsed}
+            title={`${sidebarCollapsed ? "Show" : "Hide"} sidebar (Ctrl+B)`}
+            className="hidden lg:inline-flex"
+          >
+            {sidebarCollapsed ? (
+              <PanelLeft className="size-5" aria-hidden />
+            ) : (
+              <PanelLeftClose className="size-5" aria-hidden />
+            )}
+          </Button>
+        )}
 
         <div className="min-w-0">
           <p className="text-muted-foreground truncate text-xs">{eyebrow}</p>

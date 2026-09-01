@@ -499,7 +499,7 @@ export function Landing({ signedIn = false }: { signedIn?: boolean }) {
           </h2>
           <div className="rule-brand mx-auto mt-11 w-48" aria-hidden />
           <p className="text-muted-foreground mx-auto mt-9 max-w-lg text-lg">
-            {spellOutCapitalised(PLANS.free.scrapes)} free scrapes is more than
+            {spellOutCapitalised(PLANS.free.runs)} free runs a month is more than
             enough to catch us bluffing.
           </p>
           <div className="mt-12 flex flex-wrap justify-center gap-4">

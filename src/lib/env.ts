@@ -32,7 +32,21 @@ const serverEnvSchema = z.object({
   APIFY_INSTAGRAM_ACTOR: z.string().min(1).default("apify/instagram-scraper"),
   FIRECRAWL_API_KEY: z.string().min(1),
   OPENAI_API_KEY: z.string().min(1),
+  /**
+   * The model Studio and Max run on. Advertised on the pricing page as the
+   * "advanced reasoning model", so changing it changes a promise.
+   */
   OPENAI_MODEL: z.string().min(1).default("gpt-4o"),
+  /**
+   * The model Scout and Creator run on — the "fast model, built for volume".
+   *
+   * A SEPARATE VARIABLE, not a constant, for the same reason OPENAI_MODEL is
+   * one: provider model names get renamed, and that should be a .env edit
+   * rather than a deploy. It defaults to the mini tier, which is what the
+   * margin sums in plans.ts assume for those two tiers — roughly Rs 0.40 a run
+   * against Rs 6 on the premium model.
+   */
+  OPENAI_MODEL_FAST: z.string().min(1).default("gpt-4o-mini"),
   APP_URL: z.url().default("http://localhost:3000"),
 
   // --- Razorpay ------------------------------------------------------------
@@ -45,8 +59,17 @@ const serverEnvSchema = z.object({
   RAZORPAY_KEY_ID: z.string().default(""),
   RAZORPAY_KEY_SECRET: z.string().default(""),
   RAZORPAY_WEBHOOK_SECRET: z.string().default(""),
-  RAZORPAY_PLAN_ID_PRO: z.string().default(""),
-  RAZORPAY_PLAN_ID_PRO_YEARLY: z.string().default(""),
+
+  // SIX plan ids, because a Razorpay plan hard-codes period AND amount AND
+  // currency — so every tier-and-cycle pair is its own object. Only the three
+  // monthly ones are required; a blank yearly id hides that toggle rather than
+  // breaking the page, which is how annual billing can be switched on later.
+  RAZORPAY_PLAN_ID_CREATOR_MONTHLY: z.string().default(""),
+  RAZORPAY_PLAN_ID_CREATOR_YEARLY: z.string().default(""),
+  RAZORPAY_PLAN_ID_STUDIO_MONTHLY: z.string().default(""),
+  RAZORPAY_PLAN_ID_STUDIO_YEARLY: z.string().default(""),
+  RAZORPAY_PLAN_ID_AGENCY_MONTHLY: z.string().default(""),
+  RAZORPAY_PLAN_ID_AGENCY_YEARLY: z.string().default(""),
 });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;
@@ -91,14 +114,7 @@ export function isTranscriptConfigured(): boolean {
  */
 export function requireBillingEnv() {
   const env = serverEnv();
-  const missing = (
-    [
-      "RAZORPAY_KEY_ID",
-      "RAZORPAY_KEY_SECRET",
-      "RAZORPAY_WEBHOOK_SECRET",
-      "RAZORPAY_PLAN_ID_PRO",
-    ] as const
-  ).filter((key) => env[key] === "");
+  const missing = REQUIRED_BILLING_KEYS.filter((key) => env[key] === "");
 
   if (missing.length > 0) {
     throw new Error(
@@ -111,12 +127,22 @@ export function requireBillingEnv() {
     keyId: env.RAZORPAY_KEY_ID,
     keySecret: env.RAZORPAY_KEY_SECRET,
     webhookSecret: env.RAZORPAY_WEBHOOK_SECRET,
-    proPlanId: env.RAZORPAY_PLAN_ID_PRO,
-    // Deliberately NOT in the required list above. Monthly is the core product
-    // and must work on its own; annual is an upsell that can be switched on
-    // later by adding one variable. isYearlyConfigured() decides whether the
-    // pricing page offers the toggle at all.
-    proYearlyPlanId: env.RAZORPAY_PLAN_ID_PRO_YEARLY,
+    /**
+     * Every tier-and-cycle plan id, keyed by the env var name that holds it.
+     * The client looks its own up from `PLAN_PRICES[plan][cycle].envVar`, so
+     * adding a tier is a plans.ts edit plus one variable — not a change here.
+     *
+     * Yearly ids are deliberately NOT required: monthly is the core product and
+     * must work alone, while annual is an upsell that can be switched on later.
+     */
+    planIds: {
+      RAZORPAY_PLAN_ID_CREATOR_MONTHLY: env.RAZORPAY_PLAN_ID_CREATOR_MONTHLY,
+      RAZORPAY_PLAN_ID_CREATOR_YEARLY: env.RAZORPAY_PLAN_ID_CREATOR_YEARLY,
+      RAZORPAY_PLAN_ID_STUDIO_MONTHLY: env.RAZORPAY_PLAN_ID_STUDIO_MONTHLY,
+      RAZORPAY_PLAN_ID_STUDIO_YEARLY: env.RAZORPAY_PLAN_ID_STUDIO_YEARLY,
+      RAZORPAY_PLAN_ID_AGENCY_MONTHLY: env.RAZORPAY_PLAN_ID_AGENCY_MONTHLY,
+      RAZORPAY_PLAN_ID_AGENCY_YEARLY: env.RAZORPAY_PLAN_ID_AGENCY_YEARLY,
+    } as Record<string, string>,
   };
 }
 
@@ -155,10 +181,20 @@ export function assertModeMatchesEnvironment(): void {
   }
 }
 
-/** True when the annual plan id is set, so yearly may be offered. */
+/**
+ * True when EVERY yearly plan id is set, so the annual toggle may be offered.
+ *
+ * All three, not any: a toggle that works on Creator and silently fails on
+ * Max is worse than no toggle, because the failure lands at checkout.
+ */
 export function isYearlyConfigured(): boolean {
   try {
-    return requireBillingEnv().proYearlyPlanId !== "";
+    const { planIds } = requireBillingEnv();
+    return (
+      planIds.RAZORPAY_PLAN_ID_CREATOR_YEARLY !== "" &&
+      planIds.RAZORPAY_PLAN_ID_STUDIO_YEARLY !== "" &&
+      planIds.RAZORPAY_PLAN_ID_AGENCY_YEARLY !== ""
+    );
   } catch {
     return false;
   }
@@ -166,11 +202,21 @@ export function isYearlyConfigured(): boolean {
 
 let warnedAboutBilling = false;
 
-const BILLING_KEYS = [
+/**
+ * What must be set before the upgrade UI appears at all.
+ *
+ * The three MONTHLY plan ids are here; the yearly ones are not, for the reason
+ * given on `requireBillingEnv`. Shared by that function and by
+ * `billingConfigProblem`, so the two can never disagree about what "configured"
+ * means — they did once, and the button vanished with no explanation.
+ */
+const REQUIRED_BILLING_KEYS = [
   "RAZORPAY_KEY_ID",
   "RAZORPAY_KEY_SECRET",
   "RAZORPAY_WEBHOOK_SECRET",
-  "RAZORPAY_PLAN_ID_PRO",
+  "RAZORPAY_PLAN_ID_CREATOR_MONTHLY",
+  "RAZORPAY_PLAN_ID_STUDIO_MONTHLY",
+  "RAZORPAY_PLAN_ID_AGENCY_MONTHLY",
 ] as const;
 
 /**
@@ -196,7 +242,7 @@ export function billingConfigProblem(): string | null {
       : "The server environment failed to load.";
   }
 
-  const missing: string[] = BILLING_KEYS.filter((key) => env[key] === "");
+  const missing: string[] = REQUIRED_BILLING_KEYS.filter((key) => env[key] === "");
 
   // The browser half of `ready`. Checkout cannot open without the publishable
   // key id, and its absence is just as invisible on screen as the others', so

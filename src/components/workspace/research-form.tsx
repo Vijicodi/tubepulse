@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { JobStatusCard } from "./job-status";
 import { platformFromInput, type Platform } from "@/lib/platform/parse";
+import { VoiceResearch } from "./voice-research";
 
 /**
  * The whole input surface of the product: one field.
@@ -28,9 +29,15 @@ const PLATFORMS = [
 export function ResearchForm({
   projectId,
   activeJobId,
+  voiceEnabled = false,
 }: {
   projectId: string;
   activeJobId?: string | null;
+  /**
+   * Whether this plan includes voice. Passed from a server component that read
+   * the plan, so this client component never decides entitlement itself.
+   */
+  voiceEnabled?: boolean;
 }) {
   const [channel, setChannel] = useState("");
   const [platform, setPlatform] = useState<Platform>("youtube");
@@ -44,7 +51,18 @@ export function ResearchForm({
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
-    if (channel.trim() === "" || submitting) return;
+    await research(channel, platform);
+  }
+
+  /**
+   * The ONE path that spends a run.
+   *
+   * Both the typed form and the voice agent land here, so there is a single
+   * place where money is committed — and every quota check the research route
+   * makes applies identically whichever way the request arrived.
+   */
+  async function research(target: string, forPlatform: Platform) {
+    if (target.trim() === "" || submitting) return;
 
     setSubmitting(true);
     setJobId(null);
@@ -53,7 +71,7 @@ export function ResearchForm({
       const response = await fetch("/api/research", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ channel, projectId, platform }),
+        body: JSON.stringify({ channel: target, projectId, platform: forPlatform }),
       });
 
       const data = await response.json();
@@ -79,6 +97,23 @@ export function ResearchForm({
 
   return (
     <div className="flex flex-col gap-3">
+      {/*
+        The spoken path sits ABOVE the typed one, because it is the one that
+        works when you do not already know whose channel to paste — which is
+        the harder half of the job, and the reason this feature exists.
+      */}
+      <VoiceResearch
+        enabled={voiceEnabled}
+        busy={submitting}
+        onResearch={(target, forPlatform) => {
+          // Fill the box too, so what is about to be researched is visible
+          // rather than something that just happened to you.
+          setChannel(target);
+          setPlatform(forPlatform);
+          void research(target, forPlatform);
+        }}
+      />
+
       <div
         role="radiogroup"
         aria-label="Platform"

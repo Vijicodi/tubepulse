@@ -3,12 +3,15 @@ import { EmptyState, WorkspacePanel } from "@/components/workspace/panel";
 import { CreateProjectForm } from "@/components/workspace/create-project-form";
 import { ResearchForm } from "@/components/workspace/research-form";
 import { getCurrentProject } from "@/lib/projects/current";
+import { PLANS } from "@/lib/billing/plans";
+import { getBillingState } from "@/lib/billing/store";
 import { createServerClient } from "@/lib/supabase/server";
 
 export const metadata = { title: "Competitors — TubePulse" };
 
 export default async function CompetitorsPage() {
   const project = await getCurrentProject();
+  const billing = await getBillingState();
 
   if (!project) {
     return (
@@ -46,7 +49,11 @@ export default async function CompetitorsPage() {
       title="Competitors"
       description={`Accounts tracked in ${project.name}. Paste a YouTube channel or an Instagram profile.`}
     >
-      <ResearchForm projectId={project.id} activeJobId={runningJob?.id ?? null} />
+      <ResearchForm
+        projectId={project.id}
+        activeJobId={runningJob?.id ?? null}
+        voiceEnabled={PLANS[billing.planKey].features.voiceInput}
+      />
 
       {!channels || channels.length === 0 ? (
         <EmptyState>

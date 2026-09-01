@@ -1,18 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { billingStateFrom, hasProAccess } from "@/lib/billing/status";
 import {
+  HIGHLIGHTED_PLAN,
+  PAID_PLAN_KEYS,
   PLANS,
-  PRO_PRICES,
-  PRO_TOTAL_CYCLES,
-  TOPUP_LIST,
-  formatRupees,
-  perMonthRupees,
-  perScrapeRupees,
-  scrapesPerCycle,
-  toBillingCycle,
-  toTopupKey,
+  PLAN_LIST,
+  PLAN_PRICES,
+  PLAN_TOTAL_CYCLES,
+  formatUsd,
+  perMonthUsd,
+  perRunUsd,
+  toPaidPlanKey,
   yearlySavingPercent,
+  yearlySavingUsd,
+  type PaidPlanKey,
+  type Plan,
 } from "@/lib/billing/plans";
+import { billingStateFrom, hasPaidAccess, tierOf } from "@/lib/billing/status";
 import { toSubscriptionStatus } from "@/lib/razorpay/schemas";
 import type { SubscriptionRow, SubscriptionStatus } from "@/lib/supabase/types";
 
@@ -33,7 +36,7 @@ function row(overrides: Partial<SubscriptionRow> = {}): SubscriptionRow {
   return {
     id: "00000000-0000-0000-0000-000000000001",
     owner_id: "00000000-0000-0000-0000-0000000000aa",
-    plan_key: "pro",
+    plan_key: "studio",
     razorpay_subscription_id: "sub_test123",
     razorpay_customer_id: "cust_test123",
     razorpay_plan_id: "plan_test123",
@@ -41,6 +44,10 @@ function row(overrides: Partial<SubscriptionRow> = {}): SubscriptionRow {
     billing_cycle: "monthly",
     current_period_end: NEXT_MONTH,
     cancel_at_period_end: false,
+    promo_code: null,
+    promo_cycles_total: null,
+    promo_cycles_remaining: null,
+    promo_renews_at_cents: null,
     cancelled_at: null,
     created_at: LAST_MONTH,
     updated_at: LAST_MONTH,
@@ -50,25 +57,25 @@ function row(overrides: Partial<SubscriptionRow> = {}): SubscriptionRow {
 
 describe("hasProAccess", () => {
   it("grants access while active", () => {
-    expect(hasProAccess(row({ status: "active" }), NOW)).toBe(true);
+    expect(hasPaidAccess(row({ status: "active" }), NOW)).toBe(true);
   });
 
   it("grants access once the mandate is authenticated but not yet charged", () => {
     // Razorpay sits in 'authenticated' between mandate approval and the first
     // debit. Locking someone out during that window means paying and then
     // being told you have not.
-    expect(hasProAccess(row({ status: "authenticated" }), NOW)).toBe(true);
+    expect(hasPaidAccess(row({ status: "authenticated" }), NOW)).toBe(true);
   });
 
   it("keeps access after cancelling, until the paid period ends", () => {
     expect(
-      hasProAccess(row({ status: "cancelled", current_period_end: NEXT_MONTH }), NOW),
+      hasPaidAccess(row({ status: "cancelled", current_period_end: NEXT_MONTH }), NOW),
     ).toBe(true);
   });
 
   it("removes access once the cancelled period has lapsed", () => {
     expect(
-      hasProAccess(row({ status: "cancelled", current_period_end: LAST_MONTH }), NOW),
+      hasPaidAccess(row({ status: "cancelled", current_period_end: LAST_MONTH }), NOW),
     ).toBe(false);
   });
 
@@ -77,26 +84,26 @@ describe("hasProAccess", () => {
     // checkout starts, so treating its mere presence as Pro would hand the
     // paid tier to anyone who opened the popup and closed it.
     expect(
-      hasProAccess(row({ status: "created", current_period_end: NEXT_MONTH }), NOW),
+      hasPaidAccess(row({ status: "created", current_period_end: NEXT_MONTH }), NOW),
     ).toBe(false);
   });
 
   it("denies access on 'halted' even inside a paid period", () => {
     // Halted means the retries were exhausted; the money did not arrive.
     expect(
-      hasProAccess(row({ status: "halted", current_period_end: NEXT_MONTH }), NOW),
+      hasPaidAccess(row({ status: "halted", current_period_end: NEXT_MONTH }), NOW),
     ).toBe(false);
   });
 
   it("denies access on 'expired'", () => {
     expect(
-      hasProAccess(row({ status: "expired", current_period_end: NEXT_MONTH }), NOW),
+      hasPaidAccess(row({ status: "expired", current_period_end: NEXT_MONTH }), NOW),
     ).toBe(false);
   });
 
   it("denies access when a grace status has no period end to lean on", () => {
     expect(
-      hasProAccess(row({ status: "cancelled", current_period_end: null }), NOW),
+      hasPaidAccess(row({ status: "cancelled", current_period_end: null }), NOW),
     ).toBe(false);
   });
 });
@@ -104,7 +111,7 @@ describe("hasProAccess", () => {
 describe("billingStateFrom", () => {
   it("treats a missing row as the free plan", () => {
     const state = billingStateFrom(null, NOW);
-    expect(state.isPro).toBe(false);
+    expect(state.isPaid).toBe(false);
     expect(state.status).toBe("none");
     expect(state.canSubscribe).toBe(true);
     expect(state.canCancel).toBe(false);
@@ -141,7 +148,7 @@ describe("billingStateFrom", () => {
       row({ status: "active", cancel_at_period_end: true }),
       NOW,
     );
-    expect(state.isPro).toBe(true);
+    expect(state.isPaid).toBe(true);
     expect(state.headline).toMatch(/cancelling/i);
     expect(state.headline).toMatch(/No further charges/i);
   });
@@ -176,168 +183,334 @@ describe("toSubscriptionStatus", () => {
     // An unknown status must not throw inside the webhook, and must not grant
     // access. 'created' is the only value that satisfies both.
     expect(toSubscriptionStatus("paused_for_reasons")).toBe("created");
-    expect(hasProAccess(row({ status: toSubscriptionStatus("nonsense") }), NOW)).toBe(
+    expect(hasPaidAccess(row({ status: toSubscriptionStatus("nonsense") }), NOW)).toBe(
       false,
     );
   });
 });
 
 /** Margin after Razorpay's 2% + 18% GST, assuming every scrape is used. */
-function marginOf(
-  item: { priceRupees: number; scrapes: number },
-  costPerScrape = 12,
-): number {
-  const gatewayFee = item.priceRupees * 0.02 * 1.18;
-  const profit = item.priceRupees - gatewayFee - item.scrapes * costPerScrape;
-  return profit / item.priceRupees;
+/**
+ * Worst-case margin for a tier, as a fraction of revenue.
+ *
+ * "Worst case" is NOT the monthly price. It is the yearly price with the
+ * first-year promo applied, spread over twelve months — the least this tier
+ * will ever earn for a month of usage. Sizing an allowance against the sticker
+ * price is how a discount quietly turns a plan into a loss.
+ */
+const USD_PER_INR = 1 / 88;
+
+/** Worst-case cost of one run, in dollars, by the model the tier runs on. */
+function costPerRun(plan: Plan, llmRupees?: number): number {
+  const llm = llmRupees ?? (plan.model === "premium" ? 6 : 0.4);
+  // Apify 4.50 + Firecrawl 1.50 + the model.
+  return (4.5 + 1.5 + llm) * USD_PER_INR;
+}
+
+/** Razorpay international: ~3% plus 18% GST on that fee. */
+const GATEWAY_FEE = 0.03 * 1.18;
+
+/** The launch promo: 30% off the first year, on annual plans only. */
+const PROMO = 0.3;
+
+function marginOf(plan: Plan, llmRupees?: number): number {
+  const yearly = PLAN_PRICES[plan.key as PaidPlanKey].yearly.priceUsd;
+  const effectiveMonthly = (yearly * (1 - PROMO)) / 12;
+
+  const fee = effectiveMonthly * GATEWAY_FEE;
+  const cost = plan.runs * costPerRun(plan, llmRupees);
+
+  return (effectiveMonthly - fee - cost) / effectiveMonthly;
 }
 
 describe("the plan catalogue", () => {
-  it("keeps paise and rupees in step", () => {
-    // The pricing page shows rupees; Razorpay charges paise. A mismatch here
-    // bills a different number from the one advertised.
-    expect(PLANS.pro.pricePaise).toBe(PLANS.pro.priceRupees * 100);
-    expect(PLANS.free.pricePaise).toBe(0);
+  it("keeps cents and dollars in step", () => {
+    // The pricing page shows dollars; Razorpay charges the minor unit. A
+    // mismatch here bills a different number from the one advertised.
+    for (const plan of PLAN_LIST) {
+      expect(plan.priceCents).toBe(plan.priceUsd * 100);
+    }
+    expect(PLANS.free.priceCents).toBe(0);
   });
 
-  it("stays profitable at the worst-case cost per scrape", () => {
-    // ₹12 a scrape is gpt-4o plus Apify plus Firecrawl — the expensive model.
-    // Razorpay takes 2% plus 18% GST on that fee. If this ever fails, the
-    // subscription is losing money and the price must move before shipping.
+  it("stays profitable on every paid tier at the WORST case", () => {
+    // Worst case = annual, with the 30% first-year promo, at that tier's own
+    // model. If this fails, a tier is losing money and the price or the
+    // allowance must move before shipping.
+    for (const key of PAID_PLAN_KEYS) {
+      expect(marginOf(PLANS[key])).toBeGreaterThan(0.45);
+    }
+  });
+
+  it("survives a tripled model cost on every tier, though not comfortably", () => {
+    // A model price rise should not be an emergency. It is not — but the
+    // cushion is NOT uniform, and that is worth knowing before anyone reprices:
     //
-    // 20 scrapes at ₹499 leaves 49%. That is the floor this test defends:
-    // every extra scrape costs ₹12 and earns nothing, so raising the allowance
-    // without raising the price walks straight into a loss.
-    expect(marginOf(PLANS.pro)).toBeGreaterThan(0.45);
+    //   at Rs 18 a run (triple)   Creator 47%   Studio 39%   Max 18%
+    //
+    // Max is thinnest because it carries the most runs, so cost scales
+    // hardest there. It stays profitable, which is what this asserts, but a
+    // sustained rise would move Max first.
+    for (const key of PAID_PLAN_KEYS) {
+      expect(marginOf(PLANS[key], 18)).toBeGreaterThan(0.15);
+    }
+
+    // The cheaper tiers keep a real cushion, because they run the mini model.
+    expect(marginOf(PLANS.creator, 18)).toBeGreaterThan(0.4);
   });
 
-  it("keeps a cushion even if the model cost doubles", () => {
-    // The point of pricing against gpt-4o rather than a mini tier: a model
-    // swap should never be a pricing emergency.
-    expect(marginOf(PLANS.pro, 18)).toBeGreaterThan(0.2);
-  });
-
-  it("keeps the daily cap below scrapes/3, so the month cannot be drained fast", () => {
-    // This is the invariant, not just "cap < month". A cap of 7 against 20 was
-    // tried and reverted: three enthusiastic days exceeded the allowance, which
-    // made the cap a burst limit rather than a guard against a surprise API
-    // bill. Below scrapes/3 the month always takes at least four days to spend.
-    expect(PLANS.pro.dailyCap * 3).toBeLessThan(PLANS.pro.scrapes);
-    expect(PLANS.free.dailyCap).toBeLessThan(PLANS.free.scrapes);
+  it("keeps every daily cap below runs/3, so a month cannot be drained fast", () => {
+    // The invariant, not just "cap < month". Below runs/3 the month always
+    // takes at least three days to spend, which is what makes it a spend guard
+    // rather than a burst limit.
+    for (const key of PAID_PLAN_KEYS) {
+      expect(PLANS[key].dailyCap * 3).toBeLessThan(PLANS[key].runs);
+    }
+    expect(PLANS.free.dailyCap).toBeLessThan(PLANS.free.runs);
   });
 
   it("keeps the free tier's give-away cost modest", () => {
-    // Every free scrape is spend on someone who may never pay. At 50 videos a
-    // scrape costs roughly ₹7, so this is the acquisition budget per signup.
-    const FREE_SCRAPE_COST = 7;
-    expect(PLANS.free.scrapes * FREE_SCRAPE_COST).toBeLessThanOrEqual(40);
+    // Every free run is spend on someone who may never pay. Scout runs the
+    // cheap model, so this is the monthly acquisition budget per signup.
+    const monthlyCost = PLANS.free.runs * costPerRun(PLANS.free);
+    expect(monthlyCost).toBeLessThanOrEqual(0.5);
   });
 
-  it("gives Pro more depth per scrape than free", () => {
-    expect(PLANS.pro.videosPerScrape).toBeGreaterThan(PLANS.free.videosPerScrape);
+  it("makes each tier deeper than the one below it", () => {
+    expect(PLANS.creator.videosPerRun).toBeGreaterThan(PLANS.free.videosPerRun);
+    expect(PLANS.studio.videosPerRun).toBeGreaterThan(PLANS.creator.videosPerRun);
+    expect(PLANS.agency.videosPerRun).toBeGreaterThan(PLANS.studio.videosPerRun);
+  });
+
+  it("sizes allowances to real usage, so the ladder actually forces upgrades", () => {
+    // THE RULE THAT MATTERS. An allowance far above what a segment can
+    // physically consume is not generosity — it is a broken ladder, because
+    // nobody ever has a reason to move up. Measured monthly usage:
+    //   solo creator 10-16, serious creator 28-44, power user 85-140.
+    // Each tier must fit its own segment and run out for the next one.
+    expect(PLANS.creator.runs).toBeGreaterThanOrEqual(16);
+    expect(PLANS.creator.runs).toBeLessThan(28);
+
+    expect(PLANS.studio.runs).toBeGreaterThanOrEqual(44);
+    expect(PLANS.studio.runs).toBeLessThan(85);
+
+    expect(PLANS.agency.runs).toBeGreaterThanOrEqual(140);
   });
 
   it("requests a finite but effectively endless billing cycle count", () => {
     // Razorpay has no "until cancelled"; total_count is mandatory.
-    expect(PRO_TOTAL_CYCLES.monthly).toBeGreaterThanOrEqual(60);
-    expect(PRO_TOTAL_CYCLES.monthly).toBeLessThanOrEqual(100);
-    // Yearly needs far fewer cycles to cover the same span.
-    expect(PRO_TOTAL_CYCLES.yearly).toBeGreaterThanOrEqual(5);
+    expect(PLAN_TOTAL_CYCLES.monthly).toBeGreaterThanOrEqual(60);
+    expect(PLAN_TOTAL_CYCLES.monthly).toBeLessThanOrEqual(100);
+    expect(PLAN_TOTAL_CYCLES.yearly).toBeGreaterThanOrEqual(5);
   });
 
-  it("formats rupees the Indian way", () => {
-    expect(formatRupees(499)).toBe("₹499");
-    expect(formatRupees(0)).toBe("₹0");
+  it("formats dollars without inventing its own spacing", () => {
+    expect(formatUsd(19)).toBe("$19");
+    expect(formatUsd(0)).toBe("$0");
+    expect(formatUsd(40.83)).toBe("$40.83");
+  });
+
+  it("narrows untrusted plan keys, and refuses anything else", () => {
+    expect(toPaidPlanKey("studio")).toBe("studio");
+    expect(toPaidPlanKey("free")).toBeNull();
+    expect(toPaidPlanKey("pro")).toBeNull();
+    expect(toPaidPlanKey("")).toBeNull();
+    expect(toPaidPlanKey("__proto__")).toBeNull();
   });
 });
 
-describe("refill packs", () => {
-  it("keeps paise and rupees in step", () => {
-    for (const pack of TOPUP_LIST) {
-      expect(pack.pricePaise).toBe(pack.priceRupees * 100);
-    }
+describe("the upgrade ladder reads as a deal", () => {
+  it("makes the highlighted tier cheaper per run than the one below it", () => {
+    // The badge has to be TRUE, not just printed. Studio must beat Creator on
+    // per-run price, or "best value" is a claim the arithmetic contradicts.
+    expect(perRunUsd(PLANS.studio)).toBeLessThan(perRunUsd(PLANS.creator));
   });
 
-  it("costs MORE per scrape than the subscription", () => {
-    // The whole argument of the pricing page. A refill that undercuts the plan
-    // teaches people to cancel the plan, so this is a business rule, not a
-    // preference — and it is the one most likely to be broken by someone
-    // "rounding the prices nicely" later.
-    const proRate = perScrapeRupees(PLANS.pro);
-
-    for (const pack of TOPUP_LIST) {
-      expect(perScrapeRupees(pack)).toBeGreaterThan(proRate);
-    }
-  });
-
-  it("does not make the bigger pack a worse deal than the smaller one", () => {
-    // Premium over the plan is intended; punishing someone for buying more is
-    // not. The two packs should land at roughly the same rate.
-    const [small, large] = TOPUP_LIST;
-    expect(perScrapeRupees(large)).toBeLessThanOrEqual(perScrapeRupees(small) * 1.05);
-  });
-
-  it("is profitable at the worst-case cost per scrape", () => {
-    for (const pack of TOPUP_LIST) {
-      expect(marginOf(pack)).toBeGreaterThan(0.45);
-    }
-  });
-
-  it("narrows an untrusted pack key", () => {
-    // The topup route takes this string straight from a request body. If it
-    // ever let something through, the catalogue lookup would be undefined and
-    // the price would come from nowhere.
-    expect(toTopupKey("topup_small")).toBe("topup_small");
-    expect(toTopupKey("topup_large")).toBe("topup_large");
-    expect(toTopupKey("pro")).toBeNull();
-    expect(toTopupKey("")).toBeNull();
-    expect(toTopupKey("__proto__")).toBeNull();
+  it("gives the highlighted tier a feature jump, not just more volume", () => {
+    // Volume alone cannot carry a ladder whose allowances are sized to real
+    // usage. Studio has to unlock something Creator does not.
+    expect(PLANS.creator.features.instagram).toBe(false);
+    expect(PLANS[HIGHLIGHTED_PLAN].features.instagram).toBe(true);
+    expect(PLANS[HIGHLIGHTED_PLAN].model).toBe("premium");
   });
 });
 
 describe("annual billing", () => {
-  it("keeps paise and rupees in step on both cycles", () => {
-    for (const price of Object.values(PRO_PRICES)) {
-      expect(price.pricePaise).toBe(price.priceRupees * 100);
+  it("keeps cents and dollars in step on both cycles", () => {
+    for (const key of PAID_PLAN_KEYS) {
+      for (const cycle of ["monthly", "yearly"] as const) {
+        const price = PLAN_PRICES[key][cycle];
+        expect(price.priceCents).toBe(price.priceUsd * 100);
+      }
     }
   });
 
   it("is genuinely cheaper per month than paying monthly", () => {
-    // The entire claim the toggle makes. If this inverts, the page is lying.
-    expect(perMonthRupees(PRO_PRICES.yearly)).toBeLessThan(
-      perMonthRupees(PRO_PRICES.monthly),
-    );
+    for (const key of PAID_PLAN_KEYS) {
+      expect(perMonthUsd(PLAN_PRICES[key].yearly)).toBeLessThan(
+        PLAN_PRICES[key].monthly.priceUsd,
+      );
+    }
   });
 
-  it("is two months free, and says so honestly", () => {
-    expect(PRO_PRICES.yearly.priceRupees).toBe(PRO_PRICES.monthly.priceRupees * 10);
+  it("is exactly two months free, which is what the badge claims", () => {
+    for (const key of PAID_PLAN_KEYS) {
+      expect(PLAN_PRICES[key].yearly.priceUsd).toBe(
+        PLAN_PRICES[key].monthly.priceUsd * 10,
+      );
+    }
     expect(yearlySavingPercent()).toBe(17);
   });
 
-  it("stays profitable across a whole prepaid year", () => {
-    // The discount comes straight out of the margin — costs do not fall when
-    // someone prepays. 240 scrapes at ₹12 against ₹4,990 leaves about 40%,
-    // which is the floor being defended here. Deepening the annual discount
-    // walks into the thirties, so this test is the tripwire.
-    const scrapes = scrapesPerCycle(PRO_PRICES.yearly);
-    expect(scrapes).toBe(240);
-    expect(marginOf({ priceRupees: PRO_PRICES.yearly.priceRupees, scrapes })).toBeGreaterThan(
-      0.35,
+  it("saves two months of the monthly price", () => {
+    for (const key of PAID_PLAN_KEYS) {
+      expect(yearlySavingUsd(key)).toBe(PLAN_PRICES[key].monthly.priceUsd * 2);
+    }
+  });
+
+  it("gives every tier its own plan id variable, since a plan is per-cycle", () => {
+    // A Razorpay plan hard-codes period AND amount AND currency, so every
+    // tier-and-cycle pair is a separate object. Two tiers sharing an env var
+    // would bill one price for both.
+    const vars = new Set<string>();
+    for (const key of PAID_PLAN_KEYS) {
+      for (const cycle of ["monthly", "yearly"] as const) {
+        vars.add(PLAN_PRICES[key][cycle].envVar);
+      }
+    }
+    expect(vars.size).toBe(PAID_PLAN_KEYS.length * 2);
+  });
+});
+
+describe("which tier a subscription row is for", () => {
+  it("reads the stored plan key", () => {
+    expect(tierOf({ plan_key: "agency" })).toBe("agency");
+  });
+
+  it("refuses a key we no longer sell rather than guessing", () => {
+    // A row written before four-tier pricing says "pro". Guessing which of the
+    // four that meant would be inventing a price somebody is charged.
+    expect(tierOf({ plan_key: "pro" })).toBeNull();
+    expect(tierOf({ plan_key: "" })).toBeNull();
+  });
+
+  it("drops an unrecognised tier to free rather than throwing", () => {
+    const state = billingStateFrom(row({ status: "active", plan_key: "pro" }), NOW);
+    // Access is refused, but the page still renders — refusing to draw the
+    // billing screen is a worse failure than showing the free tier.
+    expect(state.planKey).toBe("free");
+    expect(state.isPaid).toBe(false);
+  });
+
+  it("unlocks the tier that was actually bought", () => {
+    const state = billingStateFrom(row({ status: "active", plan_key: "agency" }), NOW);
+    expect(state.planKey).toBe("agency");
+    expect(state.isPaid).toBe(true);
+    expect(state.headline).toContain(PLANS.agency.name);
+  });
+});
+
+
+/**
+ * THE DISCOUNT COUNTDOWN.
+ *
+ * Shown to a customer partway through a two-month promo. It has to be right in
+ * both directions: silent about a coming price rise is a chargeback, and
+ * claiming a discount that has ended is a lie the next invoice exposes.
+ */
+describe("the discount countdown", () => {
+  it("counts the discounted cycles left and names the price after", () => {
+    const state = billingStateFrom(
+      row({
+        promo_code: "LAUNCH",
+        promo_cycles_total: 2,
+        promo_cycles_remaining: 2,
+        promo_renews_at_cents: 4_900,
+      }),
+      NOW,
     );
+
+    expect(state.promo).not.toBeNull();
+    expect(state.promo?.cyclesRemaining).toBe(2);
+    expect(state.promo?.notice).toContain("2 months");
+    expect(state.promo?.notice).toContain("$49");
   });
 
-  it("earns more per subscriber-year than monthly does, despite the discount", () => {
-    // Sanity check on the trade: a year of annual should still beat nothing,
-    // and the gap to twelve monthly charges should be exactly the discount.
-    const monthlyYear = PRO_PRICES.monthly.priceRupees * 12;
-    expect(monthlyYear - PRO_PRICES.yearly.priceRupees).toBe(998);
+  it("says '1 month', not '1 months', on the last discounted cycle", () => {
+    const state = billingStateFrom(
+      row({
+        promo_code: "LAUNCH",
+        promo_cycles_total: 2,
+        promo_cycles_remaining: 1,
+        promo_renews_at_cents: 4_900,
+      }),
+      NOW,
+    );
+    expect(state.promo?.notice).toContain("1 month");
+    expect(state.promo?.notice).not.toContain("1 months");
   });
 
-  it("narrows an untrusted cycle string", () => {
-    // The checkout route takes this straight from a request body.
-    expect(toBillingCycle("monthly")).toBe("monthly");
-    expect(toBillingCycle("yearly")).toBe("yearly");
-    expect(toBillingCycle("weekly")).toBeNull();
-    expect(toBillingCycle("")).toBeNull();
+  it("goes quiet once the discount is spent", () => {
+    // At zero the ordinary renewal line is the truthful one. Continuing to
+    // show "your discount" would contradict the next invoice.
+    const state = billingStateFrom(
+      row({
+        promo_code: "LAUNCH",
+        promo_cycles_total: 2,
+        promo_cycles_remaining: 0,
+        promo_renews_at_cents: 4_900,
+      }),
+      NOW,
+    );
+    expect(state.promo).toBeNull();
+  });
+
+  it("never advertises a discount on a lapsed subscription", () => {
+    const state = billingStateFrom(
+      row({
+        status: "halted",
+        current_period_end: LAST_MONTH,
+        promo_code: "LAUNCH",
+        promo_cycles_total: 2,
+        promo_cycles_remaining: 2,
+        promo_renews_at_cents: 4_900,
+      }),
+      NOW,
+    );
+    expect(state.isPaid).toBe(false);
+    expect(state.promo).toBeNull();
+  });
+
+  it("is null for a subscription bought without a code", () => {
+    expect(billingStateFrom(row(), NOW).promo).toBeNull();
+  });
+
+  it("still counts down when the renewal price was never recorded", () => {
+    // Degraded but honest: say what is left, claim nothing about the price.
+    const state = billingStateFrom(
+      row({
+        promo_code: "LAUNCH",
+        promo_cycles_total: 2,
+        promo_cycles_remaining: 1,
+        promo_renews_at_cents: null,
+      }),
+      NOW,
+    );
+    expect(state.promo?.notice).toContain("1 month");
+    expect(state.promo?.notice).not.toContain("$");
+  });
+
+  it("uses years for an annual subscription", () => {
+    const state = billingStateFrom(
+      row({
+        billing_cycle: "yearly",
+        promo_code: "ANNUAL",
+        promo_cycles_total: 1,
+        promo_cycles_remaining: 1,
+        promo_renews_at_cents: 34_300,
+      }),
+      NOW,
+    );
+    expect(state.promo?.notice).toContain("1 year");
   });
 });

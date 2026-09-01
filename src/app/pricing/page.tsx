@@ -12,7 +12,7 @@ import { getUser } from "@/lib/supabase/server";
 export const metadata: Metadata = {
   title: "Pricing — TubePulse",
   description:
-    "Plans priced per channel scrape rather than per seat. Start free, move up only when it stops being enough.",
+    "Plans priced per channel scrape. Start free, move up only when it stops being enough.",
 };
 
 /**
@@ -47,7 +47,7 @@ export default async function PricingPage({
       <LiquidCursor />
       <Pricing
         signedIn={Boolean(user)}
-        isPro={billing?.isPro ?? false}
+        currentPlan={billing?.subscribedTier ?? null}
         // Both halves must be present: the browser needs the key id to open
         // checkout, the server needs the secret and plan id to create the
         // subscription. Either missing means the button should not pretend.

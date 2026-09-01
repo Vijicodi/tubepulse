@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Check, Loader2, X } from "lucide-react";
-import type { BillingCycle, TopupKey } from "@/lib/billing/plans";
+import type { BillingCycle, PaidPlanKey } from "@/lib/billing/plans";
 import { cn } from "@/lib/utils";
 
 /**
@@ -22,15 +22,28 @@ import { cn } from "@/lib/utils";
 export interface AppliedPromo {
   code: string;
   label: string;
-  discountPaise: number;
-  finalPaise: number;
-  originalPaise: number;
+  discountCents: number;
+  finalCents: number;
+  /**
+   * What this renews at once the discount stops. Rendered verbatim beside the
+   * price — a first-year promo that hides its renewal price is a chargeback.
+   */
+  renewalNotice: string | null;
+  /** The list price this was discounted from, for the struck-through figure. */
+  originalCents: number;
+  /**
+   * Billing cycles the discount covers. Null means it never ends.
+   * Drives the "what you will be charged" breakdown at the card step.
+   */
+  cyclesCovered: number | null;
+  /** What it costs once the discount stops, in cents. */
+  renewsAtCents: number | null;
 }
 
 export function PromoField({
   target,
   cycle,
-  pack,
+  plan,
   applied,
   onApplied,
   disabled = false,
@@ -38,7 +51,7 @@ export function PromoField({
 }: {
   target: "subscription" | "topup";
   cycle?: BillingCycle;
-  pack?: TopupKey;
+  plan?: PaidPlanKey;
   applied: AppliedPromo | null;
   onApplied: (promo: AppliedPromo | null) => void;
   disabled?: boolean;
@@ -60,7 +73,7 @@ export function PromoField({
       const response = await fetch("/api/billing/promo", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: trimmed, target, cycle, pack }),
+        body: JSON.stringify({ code: trimmed, target, cycle, plan }),
       });
 
       const data = (await response.json()) as
@@ -76,9 +89,12 @@ export function PromoField({
       onApplied({
         code: data.code,
         label: data.label,
-        discountPaise: data.discountPaise,
-        finalPaise: data.finalPaise,
-        originalPaise: data.originalPaise,
+        discountCents: data.discountCents,
+        finalCents: data.finalCents,
+        renewalNotice: data.renewalNotice ?? null,
+        originalCents: data.originalCents,
+        cyclesCovered: data.cyclesCovered ?? null,
+        renewsAtCents: data.renewsAtCents ?? null,
       });
       setError(null);
     } catch {

@@ -2,198 +2,370 @@
  * The plan catalogue — the ONE place any pricing number is written down.
  *
  * The pricing page, the billing page, the Razorpay plan-creation script and the
- * quota checks (when they land) all read from here. Previously these numbers
- * lived only in the marketing copy, which is how a page ends up promising 30
- * scrapes while the plan charges for 15.
+ * quota checks all read from here. Previously these numbers lived only in the
+ * marketing copy, which is how a page ends up promising 30 scrapes while the
+ * plan charges for 15.
  *
  * Pure module, no imports, no environment. Safe from a client component.
  *
  * ---------------------------------------------------------------------------
+ * CURRENCY IS USD, GLOBALLY. There is no regional pricing.
+ *
+ * This was considered and rejected. INR pricing that Indian customers would
+ * actually pay (₹499) cannot fund US-level allowances — at ₹499 for 50 runs on
+ * a promoted annual the margin is NEGATIVE 12%. Regional pricing therefore
+ * means regional allowances, i.e. two different products wearing the same tier
+ * names. One global price is the simpler, more honest thing, and it is what
+ * this file implements. Indian customers will find $19 expensive; that is a
+ * known and accepted trade.
+ * ---------------------------------------------------------------------------
  * THE ECONOMICS. Do not "improve" these numbers without redoing this sum.
  * `tests/billing-status.test.ts` fails if any of it stops holding.
  *
- * WHAT ONE UNIT OF THE ALLOWANCE BUYS. `scrapes` counts two billable actions,
- * not one: a channel scrape, or a generation of ideas from a channel already
- * scraped. Both cost real money per press, so both spend a unit — see
- * BILLABLE_JOB_KINDS in quota.ts. The name stayed `scrapes` because that is the
- * word on the pricing page and in the plan the customer bought.
+ * WHAT ONE UNIT OF THE ALLOWANCE BUYS. `runs` counts every billable action: a
+ * channel scrape, a generation of ideas from a channel already scraped, or a
+ * transcript extraction. All cost real money per press, so all spend a unit —
+ * see BILLABLE_JOB_KINDS in quota.ts.
  *
- * A YouTube scrape of 100 videos costs roughly:
- *   Apify        ₹4.50
- *   Firecrawl    ₹1.50
- *   ------------------------------------------------------------
- *   Total        ₹6
+ * COST PER RUN depends on the model tier, which is now a PLAN FEATURE:
  *
- * An INSTAGRAM scrape of 40 posts costs roughly:
- *   Apify        ₹9.50   (measured: $0.0027 an item, 4-6x YouTube's rate)
- *   ------------------------------------------------------------
- *   Total        ₹9.50
+ *   Mini-tier model (Scout, Creator)
+ *     Apify        ₹4.50
+ *     Firecrawl    ₹1.50
+ *     LLM          ₹0.40
+ *     ----------------------------------------------------------------
+ *     Total        ₹6.40   ≈ $0.073 at ₹88/$
  *
- * That rate is why `postsPerScrape` is 40 and not 100. At 100 posts an
- * Instagram scrape is ₹24, and an allowance spent entirely on them would cost
- * ₹480 against ₹499 of revenue. The depth moves, not the price.
+ *   Premium model (Studio, Max)
+ *     Apify        ₹4.50
+ *     Firecrawl    ₹1.50
+ *     LLM          ₹6.00
+ *     ----------------------------------------------------------------
+ *     Total        ₹12.00  ≈ $0.136 at ₹88/$
  *
- * An idea generation costs roughly:
- *   Firecrawl    ₹1.50
- *   OpenAI       ₹6.00 on gpt-4o, ₹0.40 on a mini-tier model
- *   ------------------------------------------------------------
- *   Total        ₹7.50 worst case, ₹2 best case
+ * An INSTAGRAM run costs about ₹9.50 in Apify alone — 4-6x YouTube's rate,
+ * measured at $0.0027 an item. That is why `postsPerRun` is smaller than
+ * `videosPerRun`, and why Instagram is gated to Studio and above: the depth
+ * moves and the tier moves, the price does not.
  *
- * So the worst case for ANY single unit is about ₹7.50. The sums below keep
- * using ₹12 — the old bundled figure — deliberately: it is now a comfortable
- * over-estimate, and a margin proved against a cost higher than the real one
- * cannot be wrong in the direction that hurts.
+ * Whisper voice transcription adds ~$0.003 per voice-initiated request. Assumed
+ * at 50% of runs in the sums below, which is generous.
  *
- * Razorpay takes 2% plus 18% GST on that fee — 2.36% of whatever is charged.
+ * Razorpay international takes ~3% plus 18% GST — 3.54% of whatever is charged.
+ * This is HIGHER than the 2.36% domestic rate the old INR pricing assumed.
  *
- * PRO at ₹499 for 20 scrapes, assuming a subscriber burns every single one:
- *   Revenue                    ₹499
- *   Razorpay fee               −₹12
- *   20 scrapes on gpt-4o      −₹240
- *   ------------------------------------------------------------
- *   Profit                     ₹247  — a 49% margin on the EXPENSIVE model
- *                                      (74% on a mini-tier model)
+ * THE WORST CASE IS NOT THE MONTHLY PRICE. It is the yearly price with the
+ * 30%-off first-year promo applied, spread across twelve months — that is the
+ * least revenue a month of usage will ever earn. Every allowance below is
+ * sized against THAT number, not the sticker price:
  *
- * 20 scrapes is the ceiling at this price. Every extra scrape costs ₹12 and
- * earns nothing, so 25 would drop the worst case to 37% and 30 to 25%. If more
- * scrapes are wanted, the price moves — not the allowance.
+ *   Creator  $19/mo → $133/yr promoted → $11.08/mo effective → 83% margin
+ *   Studio   $49/mo → $343/yr promoted → $28.58/mo effective → 68% margin
+ *   Max      $89/mo → $623/yr promoted → $51.92/mo effective → 57% margin
  *
- * REFILLS are deliberately priced ABOVE the Pro per-scrape rate:
- *   Pro          ₹499 / 20  =  ₹24.95 a scrape
- *   Refill       ₹149 /  5  =  ₹29.80 a scrape
- *   Big refill   ₹449 / 15  =  ₹29.93 a scrape
+ * ALLOWANCES ARE SIZED TO REAL HUMAN USAGE, NOT TO THE MARGIN CEILING.
+ * This is the important design rule and it is easy to get wrong. An allowance
+ * far above what a segment can physically consume is not generosity — it is a
+ * broken ladder, because nobody ever has a reason to upgrade. Measured usage:
  *
- * Both packs sit at about ₹30 against the plan's ₹25, which is a story a
- * customer can verify in their head: refills cost more per scrape, so the
- * subscription is always the better deal. A refill that undercuts the plan
- * teaches people to cancel the plan.
+ *   Solo creator, 1 channel, posts 1-2x/week      10-16 runs a month
+ *   Serious creator, 1-3 channels, posts 3x/week  28-44 runs a month
+ *   Power user, many channels at once             85-140 runs a month
  *
- * They also carry a BETTER margin than the subscription (57% each on gpt-4o),
- * because they are bought by the people already getting value from it.
+ * So each tier's allowance sits just above its own segment's ceiling and below
+ * the next segment's floor. Creator's 20 comfortably fits a solo creator and
+ * runs out the moment they scale to three channels. Studio's 60 fits a serious
+ * creator and runs out at power-user volume. That is what makes the ladder
+ * real rather than decorative.
  *
- * FREE costs real money too: every free scrape is spend on somebody who may
- * never pay. At 5 scrapes of 50 videos that is about ₹35 per signup — halved
- * from an earlier 10, which was ₹70 of acquisition budget per tyre-kicker. Five
- * is still enough to judge whether median scoring changes how you pick videos,
- * which is the only job the free tier has.
+ * RAISING AN ALLOWANCE WITHOUT RAISING ITS PRICE BREAKS THE LADDER, not just
+ * the margin. If Creator gave 50 runs, no solo creator would ever need Studio,
+ * and the middle tier would exist only to be ignored.
  *
- * THE DAILY CAP IS 5, AND IT IS DELIBERATELY BELOW scrapes/3. At 7 a day, three
- * enthusiastic days exhausted the whole monthly 20 and the cap protected
- * nothing — it was a burst limit wearing a spend guard's clothes. At 5 the month
- * cannot be drained in under four days, which is what makes it an actual
- * guarantee against a surprise API bill.
+ * FREE costs real money too: every free run is spend on somebody who may never
+ * pay. Three runs a month on the mini model is about $0.22 per signup per
+ * month — cheap enough to leave recurring rather than one-time, which keeps
+ * people in the product long enough to convert.
+ *
+ * THE DAILY CAP IS DELIBERATELY BELOW runs/3, so a month cannot be drained in
+ * under three days. It is a spend guard, not a burst limit.
  * ---------------------------------------------------------------------------
  */
 
-export type PlanKey = "free" | "pro";
-export type TopupKey = "topup_small" | "topup_large";
+export type PlanKey = "free" | "creator" | "studio" | "agency";
 
-/** How often Pro is charged. Two Razorpay plans, one product. */
+/** How often a paid plan is charged. Two Razorpay plans per tier, one product. */
 export type BillingCycle = "monthly" | "yearly";
+
+/**
+ * Which model tier a plan runs on. A PLAN FEATURE, advertised on the pricing
+ * page — not a silent downgrade. The mini model is genuinely fast and good;
+ * the premium model reasons better on ambiguous niches, which is what the
+ * higher tiers are paying for.
+ */
+export type ModelTier = "mini" | "premium";
+
+/**
+ * Capabilities a plan unlocks, beyond raw volume.
+ *
+ * Volume alone cannot carry a ladder whose allowances are sized to real usage
+ * (see the note above), so these do the rest of the work. Each is a real thing
+ * the customer either can or cannot do, checked at the route that performs it.
+ */
+export interface PlanFeatures {
+  /** Instagram research. Gated: it costs 4-6x a YouTube run. */
+  instagram: boolean;
+  /** Whisper voice input. ~$0.003 a request, so paid tiers only. */
+  voiceInput: boolean;
+  /** Alternative title variants generated alongside each idea. */
+  titleVariants: boolean;
+  /** Thumbnail concepts generated alongside each idea. */
+  thumbnailConcepts: boolean;
+  /** Transcript extraction and summary. */
+  transcripts: boolean;
+  /** Per-run cost breakdown shown to the customer. */
+  costBreakdown: boolean;
+  /** Full agent and tool-call audit trail. */
+  auditTrail: boolean;
+  /** Priority support queue. */
+  prioritySupport: boolean;
+  /** Content calendar: schedule saved ideas onto dates. */
+  contentCalendar: boolean;
+  /** Cross-project hook library mined from outlier titles. */
+  hookLibrary: boolean;
+  /** Projects allowed. Null means unlimited. */
+  maxProjects: number | null;
+}
 
 export interface Plan {
   key: PlanKey;
   name: string;
-  /** Rupees per month. 0 for free. */
-  priceRupees: number;
-  /** Paise — what Razorpay actually charges. Money in the smallest unit only. */
-  pricePaise: number;
-  /** Scrapes included. For free this is a one-time grant, not monthly. */
-  scrapes: number;
-  /** Whether `scrapes` refills each month or is granted once, ever. */
+  /** One line under the name. Who this tier is actually for. */
+  tagline: string;
+  /** Dollars per month. 0 for free. */
+  priceUsd: number;
+  /** Cents — what Razorpay actually charges. Money in the smallest unit only. */
+  priceCents: number;
+  /** Billable runs included per month. */
+  runs: number;
+  /** Whether `runs` refills each month. True for every tier including free. */
   recurring: boolean;
-  /** Videos pulled per scrape. The main lever between the two tiers. */
-  videosPerScrape: number;
-  /**
-   * Instagram posts pulled per scrape. DELIBERATELY SMALLER than
-   * `videosPerScrape`, and not for product reasons — Instagram data costs
-   * $0.0027 an item against YouTube's roughly $0.00045, four to six times as
-   * much. 40 posts is ₹9.5, which stays under the ₹12 the margin sums below
-   * assume; 100 would be ₹24 and, spent across a whole allowance, would leave
-   * ₹19 of profit on a ₹499 plan. 40 is ample for a stable median.
-   */
-  postsPerScrape: number;
-  /** Scrapes allowed in a single day, so one afternoon cannot drain a month. */
+  /** Videos pulled per YouTube run. */
+  videosPerRun: number;
+  /** Instagram posts pulled per run. Smaller because the data costs 4-6x. */
+  postsPerRun: number;
+  /** Runs allowed in a single day, so one afternoon cannot drain a month. */
   dailyCap: number;
+  /** Which model generates ideas on this plan. Advertised, not hidden. */
+  model: ModelTier;
+  features: PlanFeatures;
 }
 
 export const PLANS: Record<PlanKey, Plan> = {
   free: {
     key: "free",
     name: "Scout",
-    priceRupees: 0,
-    pricePaise: 0,
-    scrapes: 5,
-    recurring: false,
-    videosPerScrape: 50,
-    postsPerScrape: 20,
-    dailyCap: 2,
-  },
-  pro: {
-    key: "pro",
-    name: "Pro",
-    priceRupees: 499,
-    pricePaise: 49_900,
-    scrapes: 20,
+    tagline: "See whether the scoring changes how you pick videos.",
+    priceUsd: 0,
+    priceCents: 0,
+    runs: 3,
     recurring: true,
-    videosPerScrape: 100,
-    postsPerScrape: 40,
+    videosPerRun: 50,
+    postsPerRun: 0,
+    dailyCap: 1,
+    model: "mini",
+    features: {
+      instagram: false,
+      voiceInput: false,
+      titleVariants: false,
+      thumbnailConcepts: false,
+      transcripts: false,
+      costBreakdown: false,
+      auditTrail: false,
+      prioritySupport: false,
+      contentCalendar: false,
+      hookLibrary: false,
+      maxProjects: 1,
+    },
+  },
+  creator: {
+    key: "creator",
+    name: "Creator",
+    tagline: "One channel, posting every week.",
+    priceUsd: 19,
+    priceCents: 1_900,
+    runs: 20,
+    recurring: true,
+    videosPerRun: 100,
+    postsPerRun: 0,
     dailyCap: 5,
+    model: "mini",
+    features: {
+      instagram: false,
+      voiceInput: true,
+      titleVariants: true,
+      thumbnailConcepts: true,
+      transcripts: true,
+      costBreakdown: false,
+      auditTrail: false,
+      prioritySupport: false,
+      contentCalendar: false,
+      hookLibrary: false,
+      maxProjects: 3,
+    },
+  },
+  studio: {
+    key: "studio",
+    name: "Studio",
+    tagline: "A few channels, and you post like it is the job.",
+    priceUsd: 49,
+    priceCents: 4_900,
+    runs: 60,
+    recurring: true,
+    videosPerRun: 150,
+    postsPerRun: 40,
+    dailyCap: 15,
+    model: "premium",
+    features: {
+      instagram: true,
+      voiceInput: true,
+      titleVariants: true,
+      thumbnailConcepts: true,
+      transcripts: true,
+      costBreakdown: true,
+      auditTrail: false,
+      prioritySupport: false,
+      contentCalendar: true,
+      hookLibrary: false,
+      maxProjects: null,
+    },
+  },
+  agency: {
+    key: "agency",
+    name: "Max",
+    tagline: "Every channel you track, and a hook bank that keeps compounding.",
+    priceUsd: 89,
+    priceCents: 8_900,
+    runs: 150,
+    recurring: true,
+    videosPerRun: 200,
+    postsPerRun: 60,
+    dailyCap: 35,
+    model: "premium",
+    features: {
+      instagram: true,
+      voiceInput: true,
+      titleVariants: true,
+      thumbnailConcepts: true,
+      transcripts: true,
+      costBreakdown: true,
+      auditTrail: true,
+      prioritySupport: true,
+      contentCalendar: true,
+      hookLibrary: true,
+      maxProjects: null,
+    },
   },
 };
 
-export const PRO = PLANS.pro;
+/** Paid tiers, in ladder order. The pricing page renders this. */
+export const PAID_PLAN_KEYS = ["creator", "studio", "agency"] as const;
+export type PaidPlanKey = (typeof PAID_PLAN_KEYS)[number];
+
+export const PLAN_LIST: Plan[] = [
+  PLANS.free,
+  PLANS.creator,
+  PLANS.studio,
+  PLANS.agency,
+];
 
 /**
- * The two ways to pay for Pro.
+ * The tier the pricing page flags as the best deal.
  *
- * Same product, same 20 scrapes a month, same daily cap — only the billing
- * period and the price differ. Each maps to its OWN Razorpay plan object, since
- * a Razorpay plan hard-codes both period and amount.
+ * Studio, and it is engineered to be true rather than merely labelled: it is
+ * the only step where the per-run price falls AND the feature set jumps
+ * (Instagram, the premium model, unlimited projects, cost breakdown). Creator
+ * is $0.95 a run, Studio $0.82, Max $0.59 — Max is cheaper per run but
+ * only pays off at a volume most people cannot reach, which is exactly what
+ * makes Studio the honest recommendation for almost everyone.
+ */
+export const HIGHLIGHTED_PLAN: PaidPlanKey = "studio";
+
+/** Narrow an untrusted string to a plan key. Null if it is not one. */
+export function toPlanKey(value: string): PlanKey | null {
+  return value === "free" ||
+    value === "creator" ||
+    value === "studio" ||
+    value === "agency"
+    ? value
+    : null;
+}
+
+/** Narrow an untrusted string to a PAID plan key. Null otherwise. */
+export function toPaidPlanKey(value: string): PaidPlanKey | null {
+  return value === "creator" || value === "studio" || value === "agency"
+    ? value
+    : null;
+}
+
+/**
+ * The two ways to pay for any paid tier.
  *
- * YEARLY IS TWO MONTHS FREE: ₹4,990 against ₹5,988 paid monthly, a 17%
+ * Same product, same allowance, same features — only the billing period and
+ * the price differ. Each tier-and-cycle pair maps to its OWN Razorpay plan
+ * object, since a Razorpay plan hard-codes period, amount AND currency.
+ *
+ * YEARLY IS TWO MONTHS FREE: ten months' price for twelve months, a 17%
  * discount. That is the industry-standard framing and the easiest promise to
- * check — twelve for the price of ten.
+ * check.
  *
- * IT ALSO COSTS REAL MARGIN, and this is the number to know before touching it:
- *
- *   Monthly, worst case   ₹499 − fee − (20 × ₹12)    = 49%
- *   Yearly,  worst case   ₹4,990 − fee − (240 × ₹12) = 40%
- *
- * The discount comes straight out of the margin, because the costs do not fall
- * when someone prepays. What is bought with those nine points is a year of cash
- * up front and a year without churn. That is a good trade, but it is a trade —
- * deepening the discount past two months free walks into the thirties.
+ * IT COSTS REAL MARGIN, and the discount comes straight out of it, because the
+ * costs do not fall when someone prepays. What is bought is a year of cash up
+ * front and a year without churn. Deepening the discount past two months free
+ * starts eating the cushion that the first-year promo also draws on — and the
+ * two stack, which is the thing to remember before touching either.
  */
 export interface PlanPrice {
   cycle: BillingCycle;
-  priceRupees: number;
-  pricePaise: number;
+  priceUsd: number;
+  priceCents: number;
   /** Months covered by one charge. Drives every "per month" figure shown. */
   months: number;
-  /** The env var holding this cycle's Razorpay plan id. */
-  envVar: "RAZORPAY_PLAN_ID_PRO" | "RAZORPAY_PLAN_ID_PRO_YEARLY";
+  /** The env var holding this tier-and-cycle's Razorpay plan id. */
+  envVar: string;
   /** Razorpay's `period` for the plan object. */
   razorpayPeriod: "monthly" | "yearly";
 }
 
-export const PRO_PRICES: Record<BillingCycle, PlanPrice> = {
-  monthly: {
-    cycle: "monthly",
-    priceRupees: 499,
-    pricePaise: 49_900,
-    months: 1,
-    envVar: "RAZORPAY_PLAN_ID_PRO",
-    razorpayPeriod: "monthly",
-  },
-  yearly: {
-    cycle: "yearly",
-    priceRupees: 4_990,
-    pricePaise: 499_000,
-    months: 12,
-    envVar: "RAZORPAY_PLAN_ID_PRO_YEARLY",
-    razorpayPeriod: "yearly",
-  },
+/** Months of subscription bought by one yearly charge. Ten paid, twelve given. */
+export const YEARLY_MONTHS_CHARGED = 10;
+
+function pricesFor(plan: Plan): Record<BillingCycle, PlanPrice> {
+  const upper = plan.key.toUpperCase();
+  return {
+    monthly: {
+      cycle: "monthly",
+      priceUsd: plan.priceUsd,
+      priceCents: plan.priceCents,
+      months: 1,
+      envVar: `RAZORPAY_PLAN_ID_${upper}_MONTHLY`,
+      razorpayPeriod: "monthly",
+    },
+    yearly: {
+      cycle: "yearly",
+      priceUsd: plan.priceUsd * YEARLY_MONTHS_CHARGED,
+      priceCents: plan.priceCents * YEARLY_MONTHS_CHARGED,
+      months: 12,
+      envVar: `RAZORPAY_PLAN_ID_${upper}_YEARLY`,
+      razorpayPeriod: "yearly",
+    },
+  };
+}
+
+export const PLAN_PRICES: Record<PaidPlanKey, Record<BillingCycle, PlanPrice>> = {
+  creator: pricesFor(PLANS.creator),
+  studio: pricesFor(PLANS.studio),
+  agency: pricesFor(PLANS.agency),
 };
 
 /** Narrow an untrusted string to a billing cycle. Null if it is not one. */
@@ -202,85 +374,39 @@ export function toBillingCycle(value: string): BillingCycle | null {
 }
 
 /** What one month works out at on this cycle — the honest comparison. */
-export function perMonthRupees(price: PlanPrice): number {
-  return price.priceRupees / price.months;
+export function perMonthUsd(price: PlanPrice): number {
+  return price.priceUsd / price.months;
 }
 
-/** Rupees saved over a year by paying yearly rather than monthly. */
-export function yearlySavingRupees(): number {
-  return PRO_PRICES.monthly.priceRupees * 12 - PRO_PRICES.yearly.priceRupees;
+/** Dollars saved over a year by paying yearly rather than monthly. */
+export function yearlySavingUsd(key: PaidPlanKey): number {
+  const prices = PLAN_PRICES[key];
+  return prices.monthly.priceUsd * 12 - prices.yearly.priceUsd;
 }
 
 /** That saving as a percentage, for the "save 17%" badge. */
 export function yearlySavingPercent(): number {
-  const full = PRO_PRICES.monthly.priceRupees * 12;
-  return Math.round((yearlySavingRupees() / full) * 100);
+  return Math.round(((12 - YEARLY_MONTHS_CHARGED) / 12) * 100);
 }
 
-/** Scrapes a cycle buys in total — 20 monthly, 240 yearly. */
-export function scrapesPerCycle(price: PlanPrice): number {
-  return PRO.scrapes * price.months;
+/** Runs a cycle buys in total. */
+export function runsPerCycle(plan: Plan, price: PlanPrice): number {
+  return plan.runs * price.months;
 }
 
-/**
- * One-off scrape packs.
- *
- * A DIFFERENT Razorpay product from the subscription: these are Orders, paid
- * once, with no mandate. That is why they get their own route, their own
- * webhook event and their own ledger table — see docs/decisions/0005.
- *
- * Credits never expire. They were bought outright, and expiring them would be
- * the kind of small print the pricing page is written against.
- */
-export interface Topup {
-  key: TopupKey;
-  name: string;
-  priceRupees: number;
-  pricePaise: number;
-  scrapes: number;
-  /** The line under the name. Written here so the two pages cannot disagree. */
-  blurb: string;
-}
-
-export const TOPUPS: Record<TopupKey, Topup> = {
-  topup_small: {
-    key: "topup_small",
-    name: "Refill",
-    priceRupees: 149,
-    pricePaise: 14_900,
-    scrapes: 5,
-    blurb: "A few more channels before the month resets.",
-  },
-  topup_large: {
-    key: "topup_large",
-    name: "Big refill",
-    priceRupees: 449,
-    pricePaise: 44_900,
-    scrapes: 15,
-    blurb: "For the week a whole niche needs pulling apart.",
-  },
-};
-
-export const TOPUP_LIST: Topup[] = [TOPUPS.topup_small, TOPUPS.topup_large];
-
-/** Narrow an untrusted string to a topup key. Returns null if it is not one. */
-export function toTopupKey(value: string): TopupKey | null {
-  return value === "topup_small" || value === "topup_large" ? value : null;
-}
-
-/** Rupees per scrape, for comparing a pack against the plan. */
-export function perScrapeRupees(item: { priceRupees: number; scrapes: number }): number {
-  return item.scrapes === 0 ? 0 : item.priceRupees / item.scrapes;
+/** Dollars per run, for comparing tiers against each other. */
+export function perRunUsd(plan: Plan): number {
+  return plan.runs === 0 ? 0 : plan.priceUsd / plan.runs;
 }
 
 /**
  * Small numbers as words, for headline copy.
  *
- * The landing and pricing headlines are set in a display serif where "5 free
- * scrapes" reads like a spreadsheet and "Five free scrapes" reads like a
- * sentence. This exists so that editorial voice does not require hardcoding the
- * number in prose — which is exactly how the page ended up promising ten while
- * the plan granted five.
+ * The landing and pricing headlines are set in a display serif where "3 free
+ * runs" reads like a spreadsheet and "Three free runs" reads like a sentence.
+ * This exists so editorial voice does not require hardcoding the number in
+ * prose — which is exactly how a page ends up promising ten while the plan
+ * grants three.
  */
 const WORDS = [
   "zero", "one", "two", "three", "four", "five", "six",
@@ -297,14 +423,19 @@ export function spellOutCapitalised(value: number): string {
   return word.charAt(0).toUpperCase() + word.slice(1);
 }
 
-/** "₹499" — one formatter, so no page invents its own rupee symbol spacing. */
-export function formatRupees(amount: number): string {
-  return `₹${amount.toLocaleString("en-IN")}`;
+/** "$19" — one formatter, so no page invents its own currency spacing. */
+export function formatUsd(amount: number): string {
+  return Number.isInteger(amount)
+    ? `$${amount.toLocaleString("en-US")}`
+    : `$${amount.toLocaleString("en-US", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })}`;
 }
 
-/** Paise → rupees. Razorpay speaks paise everywhere; humans do not. */
-export function paiseToRupees(paise: number): number {
-  return paise / 100;
+/** Cents → dollars. Razorpay speaks the minor unit everywhere; humans do not. */
+export function centsToUsd(cents: number): number {
+  return cents / 100;
 }
 
 /**
@@ -314,7 +445,7 @@ export function paiseToRupees(paise: number): number {
  * 100 monthly cycles is eight years, which is functionally forever for a
  * product this age, and stays inside Razorpay's per-period ceiling.
  */
-export const PRO_TOTAL_CYCLES: Record<BillingCycle, number> = {
+export const PLAN_TOTAL_CYCLES: Record<BillingCycle, number> = {
   // 100 monthly cycles is eight years.
   monthly: 100,
   // Razorpay caps yearly plans far lower, and 10 years is well past the point

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { PRO_PRICES, TOPUPS, toBillingCycle, toTopupKey } from "@/lib/billing/plans";
+import { PLAN_PRICES, toBillingCycle, toPaidPlanKey } from "@/lib/billing/plans";
 import { checkPromo } from "@/lib/billing/promo-store";
 import { createServerClient } from "@/lib/supabase/server";
 
@@ -27,8 +27,8 @@ const bodySchema = z.object({
   target: z.enum(["subscription", "topup"]),
   /** Which subscription cycle, when target is "subscription". */
   cycle: z.string().optional(),
-  /** Which pack, when target is "topup". */
-  pack: z.string().optional(),
+  /** Which tier, when target is "subscription". */
+  plan: z.string().optional(),
 });
 
 export async function POST(request: Request) {
@@ -46,18 +46,27 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, reason: "Malformed request." }, { status: 400 });
   }
 
-  const amountPaise = amountFor(body.data);
-  if (amountPaise === null) {
+  const amountCents = amountFor(body.data);
+  if (amountCents === null) {
     return NextResponse.json(
       { ok: false, reason: "We could not work out what that code applies to." },
       { status: 400 },
     );
   }
 
+  const cycle = toBillingCycle(body.data.cycle ?? "monthly") ?? "monthly";
+
+  // The tier matters, not just the amount: a tiered code gives Creator 30%,
+  // Studio 40% and Max 50%. Omitting this would quietly price every tier at
+  // the code's fallback rate.
+  const planKey = toPaidPlanKey(body.data.plan ?? "") ?? undefined;
+
   const result = await checkPromo({
     rawCode: body.data.code,
     target: body.data.target,
-    amountPaise,
+    cycle,
+    planKey,
+    amountCents,
     ownerId: user.id,
   });
 
@@ -70,25 +79,36 @@ export async function POST(request: Request) {
           ok: true,
           code: result.code,
           label: result.label,
-          discountPaise: result.discountPaise,
-          finalPaise: result.finalPaise,
-          originalPaise: amountPaise,
+          discountCents: result.discountCents,
+          finalCents: result.finalCents,
+          originalCents: amountCents,
+          // The disclosure. A checkout that hides this is how a promo becomes
+          // a chargeback — see renewalNoticeFor in promo.ts.
+          renewalNotice: result.renewalNotice,
+          // Drives the "discount ends" countdown at the card step.
+          cyclesCovered: result.cyclesCovered,
+          renewsAtCents: result.renewsAtCents,
         }
       : { ok: false, reason: result.reason },
   );
 }
 
-/** The list price of whatever is being discounted. Server-side, always. */
+/**
+ * The list price of whatever is being discounted. Server-side, always.
+ *
+ * Only subscriptions remain — refill packs were retired with the move to four
+ * tiers, so a "topup" target has nothing left to price and returns null rather
+ * than guessing.
+ */
 function amountFor(body: {
   target: "subscription" | "topup";
   cycle?: string;
-  pack?: string;
+  plan?: string;
 }): number | null {
-  if (body.target === "subscription") {
-    const cycle = toBillingCycle(body.cycle ?? "monthly");
-    return cycle ? PRO_PRICES[cycle].pricePaise : null;
-  }
+  if (body.target !== "subscription") return null;
 
-  const pack = toTopupKey(body.pack ?? "");
-  return pack ? TOPUPS[pack].pricePaise : null;
+  const cycle = toBillingCycle(body.cycle ?? "monthly");
+  const plan = toPaidPlanKey(body.plan ?? "");
+
+  return cycle && plan ? PLAN_PRICES[plan][cycle].priceCents : null;
 }

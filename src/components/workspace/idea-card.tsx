@@ -95,6 +95,64 @@ export function IdeaCard({
         </details>
       )}
 
+      {/*
+        TITLE VARIANTS and THUMBNAIL CONCEPTS — paid-tier extras.
+        Both render only when present. Absent is a legitimate state, not a gap:
+        Scout gets neither, and an idea generated before these existed has
+        neither either. Nothing here says "upgrade for this" — a card is not
+        the place to sell, and an empty labelled box reads as a broken feature.
+      */}
+      {idea.title_variants && idea.title_variants.length > 0 && (
+        <details className="group border-border/50 mt-4 border-t pt-3">
+          <summary className="text-muted-foreground hover:text-foreground marker:content-none flex cursor-pointer list-none items-center gap-2 font-mono text-[0.6rem] tracking-[0.16em] uppercase transition-colors">
+            <ChevronRight
+              aria-hidden
+              className="size-3.5 transition-transform duration-200 group-open:rotate-90"
+            />
+            {idea.title_variants.length} other titles
+          </summary>
+
+          <ul className="mt-3 space-y-2">
+            {idea.title_variants.map((variant) => (
+              <li
+                key={variant}
+                className="bg-muted/25 rounded-lg px-4 py-2.5 text-sm text-pretty"
+              >
+                {variant}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+
+      {idea.thumbnail_concepts && idea.thumbnail_concepts.length > 0 && (
+        <details className="group border-border/50 mt-4 border-t pt-3">
+          <summary className="text-muted-foreground hover:text-foreground marker:content-none flex cursor-pointer list-none items-center gap-2 font-mono text-[0.6rem] tracking-[0.16em] uppercase transition-colors">
+            <ChevronRight
+              aria-hidden
+              className="size-3.5 transition-transform duration-200 group-open:rotate-90"
+            />
+            Thumbnail concepts
+          </summary>
+
+          <ul className="mt-3 space-y-2">
+            {idea.thumbnail_concepts.map((concept) => (
+              <li key={concept.text} className="bg-muted/25 rounded-lg px-4 py-3">
+                {/*
+                  The overlay text is set in the display face and sized up,
+                  because that is what it will be: a few words read at a glance.
+                  Showing it at body size misrepresents the thing being judged.
+                */}
+                <p className="font-display text-base leading-tight tracking-tight">
+                  {concept.text}
+                </p>
+                <p className="text-muted-foreground mt-1.5 text-sm">{concept.visual}</p>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+
       <div className="border-border/50 mt-4 border-t pt-3">
         <p className="text-muted-foreground font-mono text-[0.6rem] tracking-[0.16em] uppercase">
           Drawn from

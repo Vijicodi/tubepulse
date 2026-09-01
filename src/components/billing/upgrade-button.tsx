@@ -2,7 +2,7 @@
 
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { BillingCycle } from "@/lib/billing/plans";
+import type { BillingCycle, PaidPlanKey } from "@/lib/billing/plans";
 import { cn } from "@/lib/utils";
 import { useUpgrade } from "./use-upgrade";
 
@@ -14,8 +14,9 @@ import { useUpgrade } from "./use-upgrade";
  */
 export function UpgradeButton({
   className,
-  children = "Go Pro",
+  children = "Upgrade",
   variant = "default",
+  plan = "studio",
   cycle = "monthly",
   promoCode,
   onDone,
@@ -23,6 +24,8 @@ export function UpgradeButton({
   className?: string;
   children?: React.ReactNode;
   variant?: "default" | "outline";
+  /** Which tier this button buys. Defaults to the recommended one. */
+  plan?: PaidPlanKey;
   cycle?: BillingCycle;
   promoCode?: string;
   onDone?: () => void;
@@ -34,7 +37,7 @@ export function UpgradeButton({
       type="button"
       // Wrapped rather than passed directly: start() takes options, and a
       // click handler would hand it a MouseEvent as its first argument.
-      onClick={() => start({ cycle, promoCode })}
+      onClick={() => start({ plan, cycle, promoCode })}
       disabled={busy}
       variant={variant}
       className={cn(className)}

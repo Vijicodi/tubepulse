@@ -81,6 +81,26 @@ export type JobRow = {
   external_run_id: string | null;
   /** What the job was asked to do. A transcript's video URL lives here. */
   payload: { videoUrl?: string } | null;
+  /**
+   * What this run consumed — counts, never money. The cost is computed at read
+   * time from the rate table in lib/billing/cost.ts, so a stored breakdown can
+   * never disagree with current rates. Null on jobs that ran before 0012.
+   */
+  usage: {
+    videosScraped?: number;
+    postsScraped?: number;
+    pagesEnriched?: number;
+    llmTier?: "mini" | "premium";
+    llmInputTokens?: number;
+    llmOutputTokens?: number;
+    audioMinutes?: number;
+  } | null;
+  /**
+   * What the agent did, in order. Recorded for every run and shown only on the
+   * tiers that pay for it — see lib/jobs/trail.ts for why the gate is at read
+   * time rather than write time.
+   */
+  trail: { step: string; detail: string; ms: number; error?: string }[] | null;
   error: string | null;
   created_at: string;
   updated_at: string;
@@ -102,8 +122,34 @@ export type IdeaRow = {
   saved_at: string | null;
   /** The beat sheet: hook, beats with timings, close. Null on older ideas. */
   script: string | null;
+  /**
+   * Paid-tier extras, nullable because Scout gets neither and a model may omit
+   * one. See migration 0011 for why these are jsonb rather than a child table.
+   */
+  title_variants: string[] | null;
+  thumbnail_concepts: { text: string; visual: string }[] | null;
   created_at: string;
 }
+
+/** Where a scheduled slot is in its life. See 0014. */
+export type CalendarSlotStatus = "planned" | "published" | "dropped";
+
+export type CalendarSlotRow = {
+  id: string;
+  owner_id: string;
+  project_id: string;
+  idea_id: string;
+  /**
+   * A plain calendar date (YYYY-MM-DD), not a timestamp. A calendar answers
+   * "what am I making this week", and a timestamptz would show a Tuesday slot
+   * as Monday for anyone west of UTC.
+   */
+  scheduled_for: string;
+  status: CalendarSlotStatus;
+  note: string | null;
+  created_at: string;
+  updated_at: string;
+};
 
 export type TranscriptRow = {
   id: string;
@@ -134,20 +180,45 @@ export type ProjectRow = {
 
 export type BillingCycleValue = "monthly" | "yearly";
 export type PromoKindValue = "percent" | "flat";
-export type PromoScopeValue = "subscription" | "topup" | "both";
+export type PromoScopeValue =
+  | "subscription"
+  | "subscription_yearly"
+  | "subscription_monthly"
+  | "topup"
+  | "both";
+
+/** How many billing cycles the linked Razorpay offer discounts. See 0010, 0013. */
+export type PromoDurationValue =
+  | "first_cycle_only"
+  | "first_two_cycles"
+  | "forever";
 
 export type PromoCodeRow = {
   id: string;
   /** Always upper-case; the app upper-cases input before looking it up. */
   code: string;
   kind: PromoKindValue;
-  /** Percent (1-100) or paise off, depending on `kind`. */
+  /** Percent (1-100) or cents off, depending on `kind`. */
   value: number;
   scope: PromoScopeValue;
+  max_discount_cents: number | null;
+  min_amount_cents: number;
+  /**
+   * The pre-USD columns. Nullable since 0010 and never written any more — they
+   * hold the history of codes priced before the currency switch.
+   */
   max_discount_paise: number | null;
-  min_amount_paise: number;
+  min_amount_paise: number | null;
   /** Required for subscription-scoped codes — Razorpay plans are fixed-amount. */
   razorpay_offer_id: string | null;
+  /** What the linked offer does. A record of Razorpay's config, not a control. */
+  applies_to_cycles: PromoDurationValue;
+  /** What the customer pays once the discount stops, in cents. */
+  renews_at_cents: number | null;
+  /** Percent off per plan key, overriding `value` for that tier. See 0013. */
+  tier_percents: Record<string, number> | null;
+  /** Razorpay offer id per plan key. Each needs a 2-cycle limit. See 0013. */
+  tier_offer_ids: Record<string, string> | null;
   active: boolean;
   starts_at: string | null;
   expires_at: string | null;
@@ -163,7 +234,9 @@ export type PromoRedemptionRow = {
   promo_id: string;
   owner_id: string;
   target: "subscription" | "topup";
-  discount_paise: number;
+  discount_cents: number;
+  /** Pre-USD. Nullable since 0010, never written any more. */
+  discount_paise: number | null;
   razorpay_reference: string | null;
   created_at: string;
 };
@@ -182,6 +255,14 @@ export type SubscriptionRow = {
   current_period_end: string | null;
   cancel_at_period_end: boolean;
   cancelled_at: string | null;
+  /** The code used at checkout, if any. Drives the discount countdown. See 0013. */
+  promo_code: string | null;
+  /** Discounted cycles the promo covered in total. */
+  promo_cycles_total: number | null;
+  /** Discounted cycles still to come. Decremented as invoices are paid. */
+  promo_cycles_remaining: number | null;
+  /** Price once the discount stops, frozen at checkout. */
+  promo_renews_at_cents: number | null;
   created_at: string;
   updated_at: string;
 };
@@ -259,6 +340,14 @@ export type Database = {
           | "billing_cycle"
           | "cancel_at_period_end"
           | "cancelled_at"
+          // The promo columns follow the same rule as cancel_at_period_end:
+          // Razorpay's webhook payload knows nothing about them, so an upsert
+          // reacting to one must be able to omit them rather than write nulls
+          // over a live discount and reset a customer's countdown.
+          | "promo_code"
+          | "promo_cycles_total"
+          | "promo_cycles_remaining"
+          | "promo_renews_at_cents"
         > & {
           id?: string;
           updated_at?: string;
@@ -267,20 +356,46 @@ export type Database = {
           billing_cycle?: BillingCycleValue;
           cancel_at_period_end?: boolean;
           cancelled_at?: string | null;
+          promo_code?: string | null;
+          promo_cycles_total?: number | null;
+          promo_cycles_remaining?: number | null;
+          promo_renews_at_cents?: number | null;
         };
         Update: Partial<Omit<SubscriptionRow, Timestamps>>;
         Relationships: [];
       };
       promo_codes: {
         Row: PromoCodeRow;
-        Insert: Omit<PromoCodeRow, Timestamps> & { id?: string };
+        /**
+         * The legacy paise columns and the 0010 additions all have database
+         * defaults or are nullable, so none of them belong in a required
+         * insert — a new code is written entirely in cents.
+         */
+        Insert: Omit<
+          PromoCodeRow,
+          | Timestamps
+          | "max_discount_paise"
+          | "min_amount_paise"
+          | "applies_to_cycles"
+          | "renews_at_cents"
+        > & {
+          id?: string;
+          max_discount_paise?: number | null;
+          min_amount_paise?: number | null;
+          applies_to_cycles?: PromoDurationValue;
+          renews_at_cents?: number | null;
+        };
         Update: Partial<Omit<PromoCodeRow, Timestamps>>;
         Relationships: [];
       };
       promo_redemptions: {
         Row: PromoRedemptionRow;
-        Insert: Omit<PromoRedemptionRow, Timestamps | "razorpay_reference"> & {
+        Insert: Omit<
+          PromoRedemptionRow,
+          Timestamps | "razorpay_reference" | "discount_paise"
+        > & {
           id?: string;
+          discount_paise?: number | null;
           razorpay_reference?: string | null;
         };
         Update: Partial<Omit<PromoRedemptionRow, Timestamps>>;
@@ -338,10 +453,19 @@ export type Database = {
         // `payload` is optional: it has a database default of null and only a
         // transcript job sets it. Requiring it would make every existing
         // insert pass an explicit null for a column it does not use.
-        Insert: Omit<JobRow, Timestamps | "updated_at" | "payload"> & {
+        // `payload`, `usage` and `trail` are all optional: each has a database
+        // default of null and is written by only some job kinds, or only on
+        // completion. Requiring them would make every insert pass explicit
+        // nulls for columns it does not use.
+        Insert: Omit<
+          JobRow,
+          Timestamps | "updated_at" | "payload" | "usage" | "trail"
+        > & {
           id?: string;
           updated_at?: string;
           payload?: JobRow["payload"];
+          usage?: JobRow["usage"];
+          trail?: JobRow["trail"];
         };
         Update: Partial<Omit<JobRow, Timestamps>>;
         Relationships: [];
@@ -357,8 +481,29 @@ export type Database = {
       };
       ideas: {
         Row: IdeaRow;
-        Insert: Omit<IdeaRow, Timestamps> & { id?: string };
+        Insert: Omit<
+          IdeaRow,
+          Timestamps | "title_variants" | "thumbnail_concepts"
+        > & {
+          id?: string;
+          title_variants?: string[] | null;
+          thumbnail_concepts?: { text: string; visual: string }[] | null;
+        };
         Update: Partial<Omit<IdeaRow, Timestamps>>;
+        Relationships: [];
+      };
+      calendar_slots: {
+        Row: CalendarSlotRow;
+        Insert: Omit<
+          CalendarSlotRow,
+          Timestamps | "updated_at" | "status" | "note"
+        > & {
+          id?: string;
+          updated_at?: string;
+          status?: CalendarSlotStatus;
+          note?: string | null;
+        };
+        Update: Partial<Omit<CalendarSlotRow, Timestamps>>;
         Relationships: [];
       };
     };
@@ -378,6 +523,7 @@ export type Database = {
       billing_cycle: BillingCycleValue;
       promo_kind: PromoKindValue;
       promo_scope: PromoScopeValue;
+      promo_duration: PromoDurationValue;
     };
     CompositeTypes: { [_ in never]: never };
   };

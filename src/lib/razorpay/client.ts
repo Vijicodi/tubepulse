@@ -1,12 +1,10 @@
 import "server-only";
 import { requireBillingEnv } from "@/lib/env";
-import type { BillingCycle, Topup } from "@/lib/billing/plans";
-import { PRO_PRICES, PRO_TOTAL_CYCLES } from "@/lib/billing/plans";
+import type { BillingCycle, PaidPlanKey } from "@/lib/billing/plans";
+import { PLANS, PLAN_PRICES, PLAN_TOTAL_CYCLES } from "@/lib/billing/plans";
 import {
-  razorpayOrderSchema,
   razorpayPaymentSchema,
   razorpaySubscriptionSchema,
-  type RazorpayOrder,
   type RazorpayPayment,
   type RazorpaySubscription,
 } from "./schemas";
@@ -108,29 +106,33 @@ function describeError(json: unknown, status: number): string {
  * here. The promo layer refuses a subscription code that has no offer behind
  * it, rather than showing a discount and charging full price.
  */
-export async function createProSubscription({
+export async function createSubscription({
   ownerId,
   email,
+  planKey,
   cycle = "monthly",
   offerId = null,
   notes = {},
 }: {
   ownerId: string;
   email: string | null;
+  planKey: PaidPlanKey;
   cycle?: BillingCycle;
   offerId?: string | null;
   notes?: Record<string, string>;
 }): Promise<RazorpaySubscription> {
   const env = requireBillingEnv();
-  const price = PRO_PRICES[cycle];
+  const price = PLAN_PRICES[planKey][cycle];
 
-  const planId = cycle === "yearly" ? env.proYearlyPlanId : env.proPlanId;
+  // The plan object's env var name is declared in plans.ts beside its price, so
+  // this never hard-codes which variable belongs to which tier.
+  const planId = env.planIds[price.envVar] ?? "";
 
   if (planId === "") {
     throw new RazorpayError(
       cycle === "yearly"
-        ? `Annual billing is not set up: ${price.envVar} is missing from .env.local. ` +
-          `Run "npm run razorpay:plan" to create the yearly plan.`
+        ? `Annual billing is not set up for ${PLANS[planKey].name}: ${price.envVar} ` +
+          `is missing from .env.local. Run "npm run razorpay:plan" to create it.`
         : `${price.envVar} is missing from .env.local.`,
       500,
     );
@@ -140,7 +142,7 @@ export async function createProSubscription({
     method: "POST",
     body: {
       plan_id: planId,
-      total_count: PRO_TOTAL_CYCLES[cycle],
+      total_count: PLAN_TOTAL_CYCLES[cycle],
       quantity: 1,
       // Let Razorpay send its own payment emails. Ours would be a second,
       // worse copy of a receipt they already send.
@@ -154,6 +156,10 @@ export async function createProSubscription({
         owner_id: ownerId,
         email: email ?? "",
         billing_cycle: cycle,
+        // WHICH TIER. The webhook arrives with only a plan_id, which is opaque
+        // — mapping it back would mean six env lookups and a wrong answer the
+        // moment a plan is recreated. The note is the reliable link.
+        plan_key: planKey,
       },
     },
   });
@@ -184,60 +190,6 @@ export async function cancelSubscription(
     body: { cancel_at_cycle_end: immediately ? 0 : 1 },
   });
   return razorpaySubscriptionSchema.parse(json);
-}
-
-/**
- * Create a one-off order for a refill pack.
- *
- * Orders, not Subscriptions — a pack is paid once and sets up no mandate. The
- * amount comes from the catalogue on the SERVER; a browser that could name its
- * own price would buy fifteen scrapes for ₹1.
- *
- * The receipt is the caller's idempotency handle. Razorpay does not enforce
- * uniqueness on it, so it is for human tracing rather than deduplication —
- * the real guard is the unique `razorpay_payment_id` in the ledger.
- */
-export async function createTopupOrder({
-  topup,
-  ownerId,
-  email,
-  amountPaise,
-  promoCode = null,
-}: {
-  topup: Topup;
-  ownerId: string;
-  email: string | null;
-  /** What to actually charge. Below the list price when a promo applied. */
-  amountPaise?: number;
-  promoCode?: string | null;
-}): Promise<RazorpayOrder> {
-  // Refills are Orders, so a discount is simply a smaller amount — no Razorpay
-  // Offer needed. The caller computes it; this never trusts a browser figure.
-  const charge = amountPaise ?? topup.pricePaise;
-
-  const json = await call("/orders", {
-    method: "POST",
-    body: {
-      amount: charge,
-      currency: "INR",
-      receipt: `tp_${topup.key}_${Date.now()}`,
-      // As with subscriptions, this note is how a payment is traced back to a
-      // TubePulse user when the webhook arrives with no session.
-      notes: {
-        owner_id: ownerId,
-        email: email ?? "",
-        topup_key: topup.key,
-        scrapes: String(topup.scrapes),
-        ...(promoCode ? { promo_code: promoCode } : {}),
-        // The webhook checks the paid amount against the pack price. When a
-        // promo applied, THIS is the figure it must compare against, not the
-        // catalogue one — otherwise every discounted refill looks underpaid.
-        charged_paise: String(charge),
-      },
-    },
-  });
-
-  return razorpayOrderSchema.parse(json);
 }
 
 /**

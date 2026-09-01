@@ -3,6 +3,7 @@ import { z } from "zod";
 import { startTranscriptRun } from "@/lib/apify/client";
 import { getQuota, spendRefill } from "@/lib/billing/store";
 import { isTranscriptConfigured } from "@/lib/env";
+import { canUseTranscripts } from "@/lib/billing/quota";
 import { idFromUrl } from "@/lib/schemas/transcript";
 import { createServerClient } from "@/lib/supabase/server";
 
@@ -67,6 +68,20 @@ export async function POST(request: Request) {
   // Checked BEFORE any row is written — a refused request must not leave a job
   // behind, because the allowance is counted from jobs.
   const quota = await getQuota(supabase, user.id);
+
+  // TRANSCRIPTS ARE A PAID FEATURE, and the check lives here rather than only
+  // in the sidebar. A hidden nav item is not an access control: this endpoint
+  // takes a POST and a session, and a transcript costs Apify plus OpenAI.
+  if (!canUseTranscripts(quota.planKey)) {
+    return NextResponse.json(
+      {
+        error: "Transcripts are on the paid plans. Your plan covers research runs.",
+        quota,
+      },
+      // 402: money fixes this, which is more useful than a bare 403.
+      { status: 402 },
+    );
+  }
 
   if (!quota.canScrape) {
     return NextResponse.json(

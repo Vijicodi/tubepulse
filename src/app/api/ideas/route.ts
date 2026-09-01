@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getQuota, spendRefill } from "@/lib/billing/store";
+import { PLANS } from "@/lib/billing/plans";
+import { TrailRecorder } from "@/lib/jobs/trail";
 import { gatherWebContext } from "@/lib/firecrawl/enrich";
 import { generateIdeas } from "@/lib/ideas/generate";
 import { selectOutliers } from "@/lib/ideas/score";
@@ -130,9 +132,43 @@ export async function POST(request: Request) {
     await supabase.from("jobs").update({ status: "failed", error: message }).eq("id", job.id);
   };
 
+  // Recorded for EVERY run regardless of tier, and gated at read time. A trail
+  // that only starts existing when you upgrade is useless on the first day you
+  // need it — see lib/jobs/trail.ts.
+  const trail = new TrailRecorder();
+
   try {
-    const webContext = await gatherWebContext(channelTitle, outliers);
-    const ideas = await generateIdeas({ channelTitle, outliers, webContext });
+    const webContext = await trail.track(
+      "enrich",
+      `Gathered web context for ${channelTitle}`,
+      () => gatherWebContext(channelTitle, outliers),
+    );
+    // The model tier is a PLAN FEATURE, advertised on the pricing page as
+    // "fast model" against "advanced reasoning model". Passing it here is what
+    // makes that sentence true.
+    const plan = PLANS[quota.planKey];
+    const generation = await trail.track(
+      "generate",
+      `Asked the ${plan.model === "premium" ? "advanced" : "fast"} model for ideas from ${outliers.length} outliers`,
+      () =>
+        generateIdeas(
+          {
+            channelTitle,
+            outliers,
+            webContext,
+            // Only ask for what this plan includes. Generating extras for a
+            // tier that does not have them spends output tokens on every idea
+            // and then throws the result away.
+            extras: {
+              titleVariants: plan.features.titleVariants,
+              thumbnailConcepts: plan.features.thumbnailConcepts,
+            },
+          },
+          plan.model,
+        ),
+    );
+
+    const ideas = generation.ideas;
 
     const { error: insertError } = await supabase.from("ideas").insert(
       ideas.map((idea) => ({
@@ -143,6 +179,11 @@ export async function POST(request: Request) {
         angle: idea.angle,
         reasoning: idea.reasoning,
         script: idea.script,
+        // Null rather than an empty array when a plan does not include these:
+        // an empty list reads as "the model returned nothing", which is a
+        // different fact from "this tier does not get them".
+        title_variants: idea.titleVariants ?? null,
+        thumbnail_concepts: idea.thumbnailConcepts ?? null,
         confidence: idea.confidence,
         evidence_video_ids: idea.evidenceVideoIds,
         saved_at: null,
@@ -158,7 +199,24 @@ export async function POST(request: Request) {
       );
     }
 
-    await supabase.from("jobs").update({ status: "succeeded" }).eq("id", job.id);
+    trail.add("store", `Saved ${ideas.length} ideas`);
+
+    // Usage, not money. The cost is computed at read time from the rate table
+    // in lib/billing/cost.ts, so a customer's breakdown never freezes against
+    // rates that have since moved — see migration 0012.
+    await supabase
+      .from("jobs")
+      .update({
+        status: "succeeded",
+        usage: {
+          pagesEnriched: webContext.length,
+          llmTier: plan.model,
+          llmInputTokens: generation.inputTokens,
+          llmOutputTokens: generation.outputTokens,
+        },
+        trail: trail.toJSON(),
+      })
+      .eq("id", job.id);
 
     // The allowance was already gone when this started, so it came out of a
     // bought pack. Recorded only now: everything that failed above returned

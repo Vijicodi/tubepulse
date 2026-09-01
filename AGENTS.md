@@ -462,6 +462,45 @@ fixing a bug — the code fix alone is half the job.
   `src/lib/auth/messages.ts`, which is pure and tested precisely because
   `actions.ts` is `"use server"` and cannot export a sync function.
 
+- **Middleware's protected-route list is DERIVED from `NAV_ITEMS`, not typed
+  out.** The hand-maintained copy had already drifted: `/patterns` and `/runs`
+  shipped without ever being added, so middleware waved them straight through.
+  Nobody noticed because the workspace layout re-checks the session and
+  redirected anyway — the bug was invisible until the day someone removed that
+  second check. `/channels` is still appended by hand because it has no nav
+  entry. Adding a page to `nav.ts` now protects it automatically.
+- **`images.qualities` must list every quality any component asks for.** Next 16
+  only honours a quality that appears in `next.config.ts`; with the list unset it
+  defaults to `[75]`. The logo's `quality={100}` was therefore REJECTED and served
+  at 75 — the exact gradient banding the prop exists to prevent — with nothing but
+  a dev-server warning to say so.
+- **A tiered promo code cannot use `renews_at_cents`.** That column holds one
+  number and a tiered code has three renewal prices. Reading it quoted every
+  tier the same figure: Creator was told it renews at $49 when it renews at $19,
+  and Max was told $49 against $89. A wrong price at the card step is the exact
+  failure the promo module exists to prevent. The renewal price for a
+  subscription is the UNDISCOUNTED price of the tier being bought, which the
+  caller already has. **This was found by driving the real endpoint, not by a
+  unit test** — the unit tests passed throughout, because they asserted the
+  shape of the answer rather than its value against a real plan.
+- **Pass the plan key wherever a promo is priced.** `/api/billing/promo` and
+  `/api/billing/checkout` both computed the amount from the tier and then failed
+  to tell `checkPromo` which tier it was, so every tier got the code's fallback
+  rate and, at checkout, the wrong Razorpay offer — shown 50% off, charged 30%.
+- **The tier's display name is "Max"; its internal key is still `agency`.**
+  Renaming the key would orphan live Razorpay subscriptions, and there is no
+  database constraint on the column that would catch a miss. Nothing a customer
+  can see may say "Agency"; a test asserts it.
+- **A `YYYY-MM-DD` date must never go through `new Date()`.** It becomes
+  midnight UTC, so `getDate()` reports the previous day for anyone west of UTC —
+  a calendar slot silently moves, for some users only. `lib/analytics/calendar.ts`
+  keeps date keys as STRINGS and uses `Date` only for genuine arithmetic, always
+  with explicit UTC parts.
+- **`useSyncExternalStore`, not `useState` + `useEffect`, for localStorage.**
+  Reading storage during render breaks hydration; correcting it in an effect
+  trips `react-hooks/set-state-in-effect` and lints red. `getSnapshot` must
+  return a CACHED value — returning a fresh one each call loops forever.
+
 ## 7. Stop and ask
 
 Do not do these without checking first:

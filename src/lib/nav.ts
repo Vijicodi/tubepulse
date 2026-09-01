@@ -1,8 +1,12 @@
 import {
+  Anchor,
+  CalendarDays,
   CreditCard,
   FlaskConical,
   Bookmark,
   FileText,
+  Receipt,
+  ChartNoAxesColumn,
   LayoutGrid,
   Sparkles,
   SquareKanban,
@@ -57,6 +61,13 @@ export const NAV_ITEMS: NavItem[] = [
     ready: true,
   },
   {
+    href: "/patterns",
+    label: "Patterns",
+    icon: ChartNoAxesColumn,
+    description: "When to post, how long to run, and what the titles do.",
+    ready: true,
+  },
+  {
     href: "/idea-lab",
     label: "Idea lab",
     icon: FlaskConical,
@@ -71,10 +82,31 @@ export const NAV_ITEMS: NavItem[] = [
     ready: true,
   },
   {
+    href: "/calendar",
+    label: "Calendar",
+    icon: CalendarDays,
+    description: "What you are making, and when.",
+    ready: true,
+  },
+  {
+    href: "/hooks",
+    label: "Hook library",
+    icon: Anchor,
+    description: "Title shapes that beat their own channel, across every project.",
+    ready: true,
+  },
+  {
     href: "/transcript",
     label: "Extract transcript",
     icon: FileText,
     description: "Pull the spoken-word transcript from any public video.",
+    ready: true,
+  },
+  {
+    href: "/runs",
+    label: "Runs",
+    icon: Receipt,
+    description: "Everything you have spent an allowance on, and what it cost.",
     ready: true,
   },
   {

@@ -23,6 +23,12 @@ import type { ScoredVideo } from "./score";
 
 export const MAX_IDEAS = 8;
 
+/** Alternative titles per idea, on the tiers that get them. */
+export const MAX_TITLE_VARIANTS = 4;
+
+/** Thumbnail concepts per idea, on the tiers that get them. */
+export const MAX_THUMBNAIL_CONCEPTS = 3;
+
 export const ideaSchema = z.object({
   title: z.string().min(4).max(120),
   angle: z.string().min(10).max(400),
@@ -36,6 +42,32 @@ export const ideaSchema = z.object({
   script: z.string().min(600).max(3000),
   confidence: z.number().int().min(0).max(100),
   evidenceVideoIds: z.array(z.string().min(1)).min(1),
+
+  /**
+   * Alternative titles, and thumbnail concepts. Both are PAID-TIER features
+   * advertised on the pricing page.
+   *
+   * OPTIONAL, and that is deliberate rather than lazy. Three things depend on
+   * it: the free tier is asked for neither, so a required field would fail
+   * validation on every Scout run; a model occasionally omits an array it was
+   * asked for, and losing eight good ideas because one nicety is missing is a
+   * bad trade; and every idea generated before today has neither.
+   *
+   * `MAX_TITLE_VARIANTS` and `MAX_THUMBNAIL_CONCEPTS` bound them so a model
+   * cannot pad the response — a caption is a line, not a paragraph.
+   */
+  titleVariants: z.array(z.string().min(4).max(120)).max(MAX_TITLE_VARIANTS).optional(),
+  thumbnailConcepts: z
+    .array(
+      z.object({
+        /** The words ON the thumbnail. Short, because a thumbnail is glanced at. */
+        text: z.string().min(1).max(40),
+        /** What the image shows. A direction, not a prompt for an image model. */
+        visual: z.string().min(10).max(240),
+      }),
+    )
+    .max(MAX_THUMBNAIL_CONCEPTS)
+    .optional(),
 });
 
 export const ideasResponseSchema = z.object({
@@ -48,6 +80,16 @@ export interface GenerateInput {
   channelTitle: string;
   outliers: ScoredVideo[];
   webContext: WebContext[];
+  /**
+   * Extras this plan is entitled to. Asked for only when included, because
+   * generating them costs output tokens on every idea — a free tier paying for
+   * a feature it does not have is the cost side of the same mistake as a paid
+   * tier not getting one it does.
+   */
+  extras?: {
+    titleVariants?: boolean;
+    thumbnailConcepts?: boolean;
+  };
 }
 
 export const SYSTEM_PROMPT = `You find video ideas for YouTube creators by reading what already outperformed on a competitor's channel.
@@ -84,7 +126,10 @@ export function buildPrompt({
   channelTitle,
   outliers,
   webContext,
+  extras,
 }: GenerateInput): string {
+  const wantsTitles = extras?.titleVariants ?? false;
+  const wantsThumbnails = extras?.thumbnailConcepts ?? false;
   const videoLines = outliers
     .map(
       (video) =>
@@ -136,6 +181,46 @@ How it lands, and ONE ask, not three.
 
 Write the beats as directions to a film-maker — "open on the thumbnail moment, do not explain it yet" — never as sentences to read aloud. Use real specifics from the evidence, including the actual numbers, rather than placeholders.
 
+${extrasInstructions(wantsTitles, wantsThumbnails)}
 Return a JSON object of exactly this shape:
-{"ideas":[{"title":"...","angle":"...","reasoning":"...","script":"...","confidence":0,"evidenceVideoIds":["..."]}]}`;
+{"ideas":[{"title":"...","angle":"...","reasoning":"...","script":"...","confidence":0,"evidenceVideoIds":["..."]${extrasShape(wantsTitles, wantsThumbnails)}}]}`;
+}
+
+
+/**
+ * The extra instructions, or nothing at all.
+ *
+ * Returns an empty string when a tier gets neither, so a Scout prompt is
+ * byte-for-byte what it was before these features existed — no wasted input
+ * tokens, and no chance of a model volunteering a field the plan does not
+ * include.
+ */
+function extrasInstructions(wantsTitles: boolean, wantsThumbnails: boolean): string {
+  if (!wantsTitles && !wantsThumbnails) return "";
+
+  const parts: string[] = [""];
+
+  if (wantsTitles) {
+    parts.push(
+      `"titleVariants" is ${MAX_TITLE_VARIANTS} ALTERNATIVE titles for the same idea — not rewordings of "title", but genuinely different framings of it: a question, a number, a contradiction, a plain statement. Each must stand on its own without the others. Never repeat "title" itself.`,
+    );
+  }
+
+  if (wantsThumbnails) {
+    parts.push(
+      `"thumbnailConcepts" is ${MAX_THUMBNAIL_CONCEPTS} thumbnail ideas. Each has "text" — at most four or five words that go ON the image, because a thumbnail is glanced at, not read — and "visual", one sentence describing what the picture shows, written as a direction to whoever makes it. Draw on what actually worked in the evidence rather than inventing a house style.`,
+    );
+  }
+
+  return parts.join("\n\n") + "\n";
+}
+
+/** The extra keys in the shape line, matching what was actually asked for. */
+function extrasShape(wantsTitles: boolean, wantsThumbnails: boolean): string {
+  let shape = "";
+  if (wantsTitles) shape += ',"titleVariants":["..."]';
+  if (wantsThumbnails) {
+    shape += ',"thumbnailConcepts":[{"text":"...","visual":"..."}]';
+  }
+  return shape;
 }

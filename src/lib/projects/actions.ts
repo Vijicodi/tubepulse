@@ -5,6 +5,9 @@ import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 import { z } from "zod";
 import { createServerClient, getUser } from "@/lib/supabase/server";
+import { canCreateProject, nextTierUp } from "@/lib/billing/quota";
+import { getBillingState } from "@/lib/billing/store";
+import { PLANS } from "@/lib/billing/plans";
 import { CURRENT_PROJECT_COOKIE } from "./current";
 
 const createProjectSchema = z.object({
@@ -33,6 +36,35 @@ export async function createProject(
   }
 
   const supabase = await createServerClient();
+
+  /**
+   * THE PROJECT LIMIT, enforced where the row is written.
+   *
+   * Scout gets one workspace, Creator three, Studio and Max as many as they
+   * like. Counted live rather than stored: a stored counter and the rows it
+   * counts drift the moment a project is deleted, and the drift is silently in
+   * the customer's favour, so nothing ever reports it.
+   */
+  const billing = await getBillingState();
+  const { count } = await supabase
+    .from("projects")
+    .select("id", { count: "exact", head: true })
+    .eq("owner_id", user.id);
+
+  if (!canCreateProject(billing.planKey, count ?? 0)) {
+    const plan = PLANS[billing.planKey];
+    const next = nextTierUp(billing.planKey);
+
+    return {
+      error: next
+        ? `${plan.name} covers ${plan.features.maxProjects} project${
+            plan.features.maxProjects === 1 ? "" : "s"
+          }. ${next.name} gives you ${
+            next.features.maxProjects === null ? "unlimited" : next.features.maxProjects
+          }.`
+        : `You have reached the project limit for ${plan.name}.`,
+    };
+  }
 
   const { data: created, error } = await supabase
     .from("projects")

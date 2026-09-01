@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { publicEnv, isSupabaseConfigured } from "@/lib/public-env";
+import { NAV_ITEMS } from "@/lib/nav";
 
 /**
  * Session refresh + route protection.
@@ -19,16 +20,22 @@ import { publicEnv, isSupabaseConfigured } from "@/lib/public-env";
  * forget to protect itself.
  */
 
+/**
+ * Which paths require a session.
+ *
+ * DERIVED FROM `NAV_ITEMS` rather than typed out again. The hand-maintained
+ * version of this list had already drifted — `/patterns` and `/runs` shipped
+ * without ever being added, so middleware waved them straight through. The
+ * workspace layout re-checks the session and redirected anyway, which is
+ * exactly why nobody noticed: the bug was invisible until the day someone
+ * removed the second check.
+ *
+ * `/channels` is appended by hand because it has no nav entry of its own — it
+ * is reached from inside Competitors rather than from the sidebar.
+ */
 const WORKSPACE_PREFIXES = [
-  "/projects",
-  "/project",
-  "/competitors",
-  "/outliers",
-  "/idea-lab",
-  "/saved-ideas",
-  "/transcript",
+  ...NAV_ITEMS.map((item) => item.href),
   "/channels",
-  "/billing",
 ];
 
 export async function middleware(request: NextRequest) {

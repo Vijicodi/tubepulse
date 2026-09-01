@@ -1,6 +1,7 @@
 import "server-only";
 import OpenAI from "openai";
 import { serverEnv } from "@/lib/env";
+import type { ModelTier } from "@/lib/billing/plans";
 import { stripVideoIds } from "./clean";
 import {
   buildPrompt,
@@ -24,7 +25,41 @@ import {
 export { buildPrompt, ideaSchema, ideasResponseSchema, MAX_IDEAS } from "./prompt";
 export type { GenerateInput, Idea } from "./prompt";
 
-export async function generateIdeas(input: GenerateInput): Promise<Idea[]> {
+/**
+ * What one generation produced, and what it consumed.
+ *
+ * The token counts come straight from OpenAI's own `usage` on the completion —
+ * measured, not estimated. They are what makes the per-run cost breakdown an
+ * observation rather than a guess about the prompt's length.
+ */
+export interface GenerationResult {
+  ideas: Idea[];
+  inputTokens: number;
+  outputTokens: number;
+  model: string;
+}
+
+/**
+ * Which OpenAI model a tier runs on.
+ *
+ * The pricing page advertises this as a plan feature — "fast model, built for
+ * volume" against "advanced reasoning model" — so it is a promise, not an
+ * implementation detail. Both names come from the environment.
+ */
+export function modelFor(tier: ModelTier): string {
+  const env = serverEnv();
+  return tier === "premium" ? env.OPENAI_MODEL : env.OPENAI_MODEL_FAST;
+}
+
+export async function generateIdeas(
+  input: GenerateInput,
+  /**
+   * The caller's model tier. Defaults to premium so a forgotten argument
+   * over-delivers rather than quietly downgrading a paying customer — the
+   * failure that would never be reported.
+   */
+  tier: ModelTier = "premium",
+): Promise<GenerationResult> {
   if (input.outliers.length === 0) {
     throw new Error(
       "No outlier videos to work from. This channel's videos all perform close to its median.",
@@ -35,7 +70,7 @@ export async function generateIdeas(input: GenerateInput): Promise<Idea[]> {
   const client = new OpenAI({ apiKey: env.OPENAI_API_KEY });
 
   const completion = await client.chat.completions.create({
-    model: env.OPENAI_MODEL,
+    model: modelFor(tier),
     response_format: { type: "json_object" },
     // Eight beat sheets is roughly triple what this response used to be. A cut
     // off response is truncated JSON, which fails validation — the correct
@@ -61,7 +96,7 @@ export async function generateIdeas(input: GenerateInput): Promise<Idea[]> {
 
   // Drop any citation the model invented for a video we did not send it.
   const knownIds = new Set(input.outliers.map((video) => video.videoId));
-  return parsed.data.ideas
+  const ideas = parsed.data.ideas
     .map((idea) => ({
       ...idea,
       // The prompt shows each video as `[videoId] "Title"` and asks for those
@@ -75,6 +110,16 @@ export async function generateIdeas(input: GenerateInput): Promise<Idea[]> {
       evidenceVideoIds: idea.evidenceVideoIds.filter((id) => knownIds.has(id)),
     }))
     .filter((idea) => idea.evidenceVideoIds.length > 0);
+
+  return {
+    ideas,
+    // Measured, not derived from the prompt's length. `usage` is absent only
+    // if OpenAI omits it, and a missing count must read as "unknown" (0) rather
+    // than as an invented estimate shown to a customer as fact.
+    inputTokens: completion.usage?.prompt_tokens ?? 0,
+    outputTokens: completion.usage?.completion_tokens ?? 0,
+    model: completion.model,
+  };
 }
 
 

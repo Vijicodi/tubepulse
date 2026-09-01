@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import type { BillingCycle } from "@/lib/billing/plans";
+import type { BillingCycle, PaidPlanKey } from "@/lib/billing/plans";
 import { brandColour, loadRazorpay } from "./razorpay-checkout";
 
 /**
@@ -55,7 +55,11 @@ export function useUpgrade(onDone?: () => void) {
     }
   }
 
-  async function start(options: { cycle?: BillingCycle; promoCode?: string } = {}) {
+  async function start(options: {
+    plan: PaidPlanKey;
+    cycle?: BillingCycle;
+    promoCode?: string;
+  }) {
     setBusy(true);
 
     try {
@@ -63,6 +67,7 @@ export function useUpgrade(onDone?: () => void) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          plan: options.plan,
           cycle: options.cycle ?? "monthly",
           promoCode: options.promoCode,
         }),
@@ -91,8 +96,8 @@ export function useUpgrade(onDone?: () => void) {
         name: "TubePulse",
         description:
           data.cycle === "yearly"
-            ? `${data.planName ?? "Pro"} — billed yearly, cancel any time`
-            : `${data.planName ?? "Pro"} — billed monthly, cancel any time`,
+            ? `${data.planName ?? "TubePulse"} — billed yearly, cancel any time`
+            : `${data.planName ?? "TubePulse"} — billed monthly, cancel any time`,
         prefill: { email: data.email ?? "" },
         theme: { color: brandColour() },
         handler: () => {
@@ -124,8 +129,11 @@ export function useUpgrade(onDone?: () => void) {
 
   return {
     busy,
-    start: (options: { cycle?: BillingCycle; promoCode?: string } = {}) =>
-      void start(options),
+    start: (options: {
+      plan: PaidPlanKey;
+      cycle?: BillingCycle;
+      promoCode?: string;
+    }) => void start(options),
   };
 }
 

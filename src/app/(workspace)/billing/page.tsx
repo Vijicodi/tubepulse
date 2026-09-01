@@ -1,12 +1,16 @@
 import { AlertCircle, Check, CreditCard, ShieldCheck } from "lucide-react";
 import { CancelButton } from "@/components/billing/cancel-button";
-import { RefillCards } from "@/components/billing/refill-cards";
 import { RefreshBillingButton } from "@/components/billing/refresh-button";
 import { UpgradeChoice } from "@/components/billing/upgrade-choice";
 import { EmptyState, PanelBadge, WorkspacePanel } from "@/components/workspace/panel";
-import { PLANS, PRO, PRO_PRICES, formatRupees, perScrapeRupees } from "@/lib/billing/plans";
+import {
+  HIGHLIGHTED_PLAN,
+  PLANS,
+  PLAN_PRICES,
+  formatUsd,
+} from "@/lib/billing/plans";
 import { formatDate } from "@/lib/billing/status";
-import { getBillingState, getCreditBalance, getCreditHistory } from "@/lib/billing/store";
+import { getBillingState, getCreditHistory } from "@/lib/billing/store";
 import { isBillingConfigured, isYearlyConfigured, razorpayMode } from "@/lib/env";
 import { isCheckoutConfigured } from "@/lib/public-env";
 
@@ -28,9 +32,10 @@ export const dynamic = "force-dynamic";
  * what plan someone is on.
  */
 export default async function BillingPage() {
-  const [state, credits, history] = await Promise.all([
+  const [state, history] = await Promise.all([
     getBillingState(),
-    getCreditBalance(),
+    // Legacy credits only — refill packs were retired with the four-tier
+    // pricing, so this is history rather than a balance anyone can add to.
     getCreditHistory(5),
   ]);
 
@@ -40,13 +45,20 @@ export default async function BillingPage() {
   // no real money is moving; discovering it later, from a missing payout, is
   // the expensive way to find out.
   const testMode = ready && razorpayMode() === "test";
-  const free = PLANS.free;
+  // The tier they are actually on right now, and the one worth showing next.
+  const plan = PLANS[state.planKey];
+  const upgrade =
+    state.planKey === "agency" ? null : PLANS[state.planKey === "free" ? HIGHLIGHTED_PLAN : "agency"];
 
   return (
     <WorkspacePanel
       title="Billing"
       description="Your plan, what it costs, and how to stop it. No phone call required."
-      badge={<PanelBadge>{state.isPro ? "Pro" : "Scout — free"}</PanelBadge>}
+      badge={
+        <PanelBadge>
+          {state.isPaid ? plan.name : `${plan.name} — free`}
+        </PanelBadge>
+      }
       action={ready && state.razorpaySubscriptionId ? <RefreshBillingButton /> : undefined}
     >
       {testMode && (
@@ -85,54 +97,64 @@ export default async function BillingPage() {
               Current plan
             </p>
             <h3 className="mt-2 text-2xl font-semibold tracking-tight">
-              {state.isPro ? PRO.name : free.name}
+              {plan.name}
               <span className="text-muted-foreground ml-3 text-base font-normal">
-                {state.isPro
-                  ? `${formatRupees(PRO_PRICES[state.cycle].priceRupees)} ${
-                      state.cycle === "yearly" ? "a year" : "a month"
-                    }`
+                {state.isPaid && state.subscribedTier
+                  ? `${formatUsd(
+                      PLAN_PRICES[state.subscribedTier][state.cycle].priceUsd,
+                    )} ${state.cycle === "yearly" ? "a year" : "a month"}`
                   : "Free"}
               </span>
             </h3>
             <p className="text-muted-foreground mt-2 max-w-prose text-sm">
               {state.headline}
             </p>
+
+            {/* The discount countdown. Shown only while one is running, and it
+                always names the price it rises to — a customer who is told
+                "2 months left" but not "then $49" has been told half of it. */}
+            {state.promo && (
+              <p className="border-border/60 bg-muted/30 mt-3 max-w-prose rounded-lg border px-3 py-2 text-xs">
+                <span className="font-mono uppercase">{state.promo.code}</span>
+                <span className="text-muted-foreground"> — {state.promo.notice}</span>
+              </p>
+            )}
           </div>
 
         </div>
 
         {state.canSubscribe && ready && (
           <div className="border-border/60 mt-6 border-t pt-6">
-            <UpgradeChoice canYearly={canYearly} />
+            <UpgradeChoice canYearly={canYearly} currentPlan={state.subscribedTier} />
           </div>
         )}
 
         <dl className="border-border/60 mt-6 grid gap-x-8 gap-y-4 border-t pt-6 sm:grid-cols-2 lg:grid-cols-4">
           <Stat
-            label="Scrapes"
-            value={String(state.isPro ? PRO.scrapes : free.scrapes)}
-            note={state.isPro ? "each month" : "one time, ever"}
+            label="Runs"
+            value={String(plan.runs)}
+            note="each month"
           />
           <Stat
-            label="Videos per scrape"
-            value={String(state.isPro ? PRO.videosPerScrape : free.videosPerScrape)}
+            label="Videos per run"
+            value={String(plan.videosPerRun)}
             note="per channel read"
           />
           <Stat
-            label={state.cancelAtPeriodEnd ? "Pro until" : "Renews"}
+            label={state.cancelAtPeriodEnd ? `${plan.name} until` : "Renews"}
             value={state.currentPeriodEnd ? formatDate(state.currentPeriodEnd) : "—"}
             note={
               state.cancelAtPeriodEnd
                 ? "then back to Scout"
-                : state.isPro
+                : state.isPaid
                   ? "charged automatically"
                   : "nothing scheduled"
             }
           />
           <Stat
-            label="Refill balance"
-            value={String(credits)}
-            note={credits === 0 ? "no packs bought" : "bought outright, never expire"}
+            label="Runs a day"
+            value={String(plan.dailyCap)}
+            note="so a month cannot vanish in an afternoon"
           />
         </dl>
 
@@ -143,19 +165,26 @@ export default async function BillingPage() {
         )}
       </section>
 
-      {/* ------------------------------------------------- what Pro includes */}
-      {!state.isPro && (
+      {/* ---------------------------------------------- what upgrading gives */}
+      {upgrade && (
         <section className="surface-raised rounded-2xl p-6">
           <p className="text-muted-foreground text-[0.68rem] tracking-[0.18em] uppercase">
-            What changes on Pro
+            What changes on {upgrade.name}
           </p>
           <ul className="mt-5 grid gap-3 sm:grid-cols-2">
             {[
-              `${PRO.scrapes} channel scrapes every month`,
-              `${PRO.videosPerScrape} videos read per scrape, not ${free.videosPerScrape}`,
-              "Web enrichment via Firecrawl",
-              "Transcript search",
-              `Up to ${PRO.dailyCap} plan scrapes a day — refills are not capped`,
+              `${upgrade.runs} research runs every month, not ${plan.runs}`,
+              `${upgrade.videosPerRun} videos read per run, not ${plan.videosPerRun}`,
+              ...(upgrade.features.instagram && !plan.features.instagram
+                ? [`Instagram research, ${upgrade.postsPerRun} posts a run`]
+                : []),
+              ...(upgrade.model === "premium" && plan.model !== "premium"
+                ? ["Advanced reasoning model"]
+                : []),
+              ...(upgrade.features.transcripts && !plan.features.transcripts
+                ? ["Transcripts and summaries"]
+                : []),
+              `Up to ${upgrade.dailyCap} runs a day`,
               "Cancel any time, keep the period you paid for",
             ].map((line) => (
               <li key={line} className="flex items-start gap-2.5 text-sm">
@@ -167,29 +196,11 @@ export default async function BillingPage() {
         </section>
       )}
 
-      {/* ------------------------------------------------------------ refills */}
-      <section className="space-y-4">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <p className="text-muted-foreground text-[0.68rem] tracking-[0.18em] uppercase">
-              Refill packs
-            </p>
-            <p className="text-muted-foreground mt-1.5 max-w-prose text-sm">
-              Extra scrapes, bought once, never expiring. Priced a little above
-              the plan&rsquo;s {formatRupees(Math.round(perScrapeRupees(PRO)))} a
-              scrape — the subscription should always be the better deal.
-            </p>
-          </div>
-        </div>
-
-        <RefillCards signedIn canCheckout={ready} />
-      </section>
-
       {/* ------------------------------------------------------------ history */}
       {history.length > 0 && (
         <section className="surface-raised rounded-2xl p-6">
           <p className="text-muted-foreground text-[0.68rem] tracking-[0.18em] uppercase">
-            Recent purchases
+            Earlier credits
           </p>
           <ul className="mt-4 space-y-3">
             {history.map((entry) => (
@@ -199,7 +210,7 @@ export default async function BillingPage() {
               >
                 <span className="min-w-0">
                   <span className="font-medium">
-                    {entry.credits > 0 ? `+${entry.credits}` : entry.credits} scrapes
+                    {entry.credits > 0 ? `+${entry.credits}` : entry.credits} runs
                   </span>
                   <span className="text-muted-foreground ml-2 text-xs">
                     {labelForSource(entry.source)}
@@ -207,8 +218,6 @@ export default async function BillingPage() {
                 </span>
                 <span className="text-muted-foreground shrink-0 text-xs tabular-nums">
                   {formatDate(entry.created_at)}
-                  {entry.amount_paise > 0 &&
-                    ` · ${formatRupees(entry.amount_paise / 100)}`}
                 </span>
               </li>
             ))}

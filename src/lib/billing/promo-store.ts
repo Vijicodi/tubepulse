@@ -1,6 +1,7 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { PromoCodeRow } from "@/lib/supabase/types";
+import type { BillingCycle, PlanKey } from "@/lib/billing/plans";
 import {
   evaluatePromo,
   normaliseCode,
@@ -69,12 +70,18 @@ export async function hasRedeemed(promoCode: string, ownerId: string): Promise<b
 export async function checkPromo({
   rawCode,
   target,
-  amountPaise,
+  cycle,
+  planKey,
+  amountCents,
   ownerId,
 }: {
   rawCode: string;
   target: PromoTarget;
-  amountPaise: number;
+  /** Required for subscriptions — an annual-only code needs to know. */
+  cycle?: BillingCycle;
+  /** Which tier is being bought, so a tiered code picks the right rate. */
+  planKey?: PlanKey;
+  amountCents: number;
   ownerId: string;
 }): Promise<PromoResult> {
   const promo = await findPromo(rawCode);
@@ -83,7 +90,9 @@ export async function checkPromo({
   return evaluatePromo({
     promo,
     target,
-    amountPaise,
+    cycle,
+    planKey,
+    amountCents,
     alreadyRedeemed: await hasRedeemed(promo.code, ownerId),
   });
 }
@@ -103,13 +112,13 @@ export async function recordRedemption({
   promoCode,
   ownerId,
   target,
-  discountPaise,
+  discountCents,
   reference,
 }: {
   promoCode: string;
   ownerId: string;
   target: PromoTarget;
-  discountPaise: number;
+  discountCents: number;
   reference: string | null;
 }): Promise<void> {
   const supabase = createAdminClient();
@@ -126,7 +135,7 @@ export async function recordRedemption({
     promo_id: promo.id,
     owner_id: ownerId,
     target,
-    discount_paise: discountPaise,
+    discount_cents: discountCents,
     // The partial unique index treats this sentinel as "does not count towards
     // the once-per-user rule", which is how a repeatable code stays repeatable.
     razorpay_reference: promo.repeatable ? "repeatable" : reference,
@@ -138,16 +147,27 @@ export async function recordRedemption({
   }
 }
 
-/** Database row → the shape the pure rules expect. */
+/**
+ * Database row → the shape the pure rules expect.
+ *
+ * The cents columns are read with a paise fallback, because rows written before
+ * the currency switch have only the old ones. Nothing converts between the two
+ * — a code priced in paise was priced for a plan that no longer exists, so the
+ * fallback exists to keep old rows READABLE, not to keep them sellable.
+ */
 function toPromoCode(row: PromoCodeRow): PromoCode {
   return {
     code: row.code,
     kind: row.kind,
     value: row.value,
     scope: row.scope,
-    maxDiscountPaise: row.max_discount_paise,
-    minAmountPaise: row.min_amount_paise,
+    maxDiscountCents: row.max_discount_cents ?? row.max_discount_paise ?? null,
+    minAmountCents: row.min_amount_cents ?? row.min_amount_paise ?? 0,
     razorpayOfferId: row.razorpay_offer_id,
+    tierPercents: row.tier_percents,
+    tierOfferIds: row.tier_offer_ids,
+    appliesToCycles: row.applies_to_cycles,
+    renewsAtCents: row.renews_at_cents,
     active: row.active,
     startsAt: row.starts_at,
     expiresAt: row.expires_at,

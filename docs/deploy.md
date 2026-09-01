@@ -55,36 +55,55 @@ needs a repo to import before it needs env vars.
 
 ## 1. Run the outstanding migrations
 
-Three are outstanding: **0007, 0008, 0009**. (0006 is already applied.)
+**Five are outstanding: 0010, 0011, 0012, 0013, 0014.** (0001-0009 were applied
+before the previous deploy.)
 
-**Paste them one at a time, not as one block.** `ALTER TYPE ... ADD VALUE` —
-which 0008 and 0009 both use — can be rejected by Postgres with *"cannot run
-inside a transaction block"*, and the Supabase SQL editor sends a pasted block
-as a single string. One at a time sidesteps it entirely.
+**Paste them one at a time, not as one block.** `ALTER TYPE ... ADD VALUE` can
+be rejected by Postgres with *"cannot run inside a transaction block"*, and the
+Supabase SQL editor sends a pasted block as a single string.
 
 ```bash
-npm.cmd run db:sql -- --only 0007   # ideas.script (the beat sheet)
-npm.cmd run db:sql -- --only 0008   # transcripts + jobs.payload
-npm.cmd run db:sql -- --only 0009   # platform + video kind (Instagram)
+npm.cmd run db:sql -- --only 0010   # USD pricing, promo durations
+npm.cmd run db:sql -- --only 0011   # idea title variants + thumbnail concepts
+npm.cmd run db:sql -- --only 0012   # per-run cost + agent trail
+npm.cmd run db:sql -- --only 0013   # tiered launch promo  ** SEE BELOW **
+npm.cmd run db:sql -- --only 0014   # content calendar
 ```
 
 Copy each, paste into **Supabase → SQL editor → Run**, confirm success, then do
 the next.
 
-All three are additive: no column is dropped or renamed, and every existing row
-stays valid.
+### 0013 needs TWO pastes, and this already bit us once
+
+It adds values to two enums, and Postgres will not let a new enum value be USED
+in the same transaction that created it. Run the two `alter type` lines at the
+top **on their own** first:
+
+```sql
+alter type promo_duration add value if not exists 'first_two_cycles';
+alter type promo_scope add value if not exists 'subscription_monthly';
+```
+
+Then run everything from `alter table public.promo_codes` to the end of the
+file as the second paste. Starting the second paste too far down produces
+`42703: column "tier_percents" does not exist` — which means the columns were
+skipped, not that anything is broken. Re-run from the `alter table` lines.
+
+All five are additive: nothing is dropped or renamed, and every existing row
+stays valid. `add column if not exists` and `on conflict do nothing` throughout,
+so a re-run is a no-op.
 
 **If you see `42P07: relation ... already exists`,** that migration is already
-applied and you are re-running it — skip to the next one. Nothing is broken.
-0009 is written defensively so a re-run is a no-op; 0007 and 0008 are not,
-because they were already applied by the time it came up.
+applied — skip to the next one.
 
 ### Then verify
 
 Paste `scripts/verify-schema.sql` into the SQL editor. Every row should read
-`ok`. It reads the catalogue only and changes nothing, and it also confirms
-row-level security is on for all twelve tables — worth doing once before you
-point a domain at this.
+`ok`; anything else names exactly what is missing. It reads the catalogue only
+and changes nothing, and it confirms row-level security is on for all thirteen
+tables. It covers every migration through 0014, including both of 0013's enum
+values — so it will catch the case where 0013's first paste succeeded and the
+second was never run.
 
 ---
 
@@ -154,6 +173,70 @@ Nameservers stay Cloudflare's — this is a records change, not a transfer.
 Cloudflare's **SSL/TLS → Overview** mode does not need to change (Vercel issues
 its own cert once the grey-cloud records resolve), and any existing MX records
 should be left alone or email on the domain dies.
+
+---
+
+## 3b. Razorpay plan objects — six of them
+
+Nothing can be bought until these exist. A Razorpay plan hard-codes BOTH its
+period and its amount, so four tiers x two cycles means six plan objects (Scout
+is free and has none).
+
+```bash
+npm.cmd run razorpay:plan
+```
+
+It prints six ids. Paste them into `.env.local` AND into Vercel:
+
+| variable | tier |
+| -------- | ---- |
+| `RAZORPAY_PLAN_ID_CREATOR_MONTHLY` / `_YEARLY` | Creator $19 |
+| `RAZORPAY_PLAN_ID_STUDIO_MONTHLY` / `_YEARLY` | Studio $49 |
+| `RAZORPAY_PLAN_ID_AGENCY_MONTHLY` / `_YEARLY` | **Max** $89 |
+
+**The AGENCY variables are Max.** The tier is displayed as "Max" but its
+internal key is still `agency`, because renaming it would orphan live
+subscriptions. The env names follow the key, not the label.
+
+**Plans cannot be edited or deleted at Razorpay.** Repricing means creating new
+ones and repointing the variables; existing subscribers stay on the old plan
+until they resubscribe.
+
+If the yearly ids are blank the yearly toggle simply hides — that is a
+deliberate degrade, not a failure.
+
+---
+
+## 3c. Razorpay offers for the launch promo — six more
+
+Only needed when you actually want `LAUNCH` / `FOUNDER` to work. Skip it to
+launch without a discount; the codes refuse at checkout until it is done, which
+is safe.
+
+The codes give a different percentage per tier — Creator 30%, Studio 40%, Max
+50% — and a Razorpay Offer carries one fixed discount, so each code needs three
+offers. Two codes x three tiers = six.
+
+**Every offer MUST be created with a cycle limit of 2.** An Offer attached to a
+subscription applies to EVERY billing cycle unless it carries that limit, and
+the dashboard does not warn you. Miss it on one offer and that tier's discount
+runs forever, for everyone who used that code, and nobody notices until the
+third invoice.
+
+Then write the ids into the code rows:
+
+```sql
+update public.promo_codes
+set tier_offer_ids = '{"creator":"offer_...","studio":"offer_...","agency":"offer_..."}'::jsonb,
+    active     = true,
+    starts_at  = '2026-09-15T00:00:00Z',
+    expires_at = '2026-09-22T00:00:00Z'
+where code = 'LAUNCH';
+```
+
+`max_redemptions` is already 25 on each. The app refuses any tier whose offer id
+is missing rather than falling back to another one, so a partial paste fails
+loudly at checkout instead of attaching the wrong discount.
 
 ---
 
