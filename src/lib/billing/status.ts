@@ -30,8 +30,14 @@ export interface BillingState {
   planKey: PlanKey;
   /** True for any paid tier. Derived — never store this as the source. */
   isPaid: boolean;
-  /** The tier they are paying for, even if access has lapsed. Null if none. */
+  /**
+   * The tier on the row, even if it was never paid for or has lapsed — a
+   * checkout opened and closed leaves one here. Use `ownedTier` for anything
+   * that says "your plan" or decides what can be bought.
+   */
   subscribedTier: PaidPlanKey | null;
+  /** The tier that is genuinely theirs right now (paid or in grace). Null if none. */
+  ownedTier: PaidPlanKey | null;
   status: SubscriptionStatus | "none";
   /** Monthly or yearly. Meaningless unless isPaid. */
   cycle: BillingCycleValue;
@@ -76,6 +82,7 @@ export const FREE_STATE: BillingState = {
   planKey: "free",
   isPaid: false,
   subscribedTier: null,
+  ownedTier: null,
   status: "none",
   cycle: "monthly",
   currentPeriodEnd: null,
@@ -135,6 +142,7 @@ export function billingStateFrom(
     planKey: active && tier ? tier : "free",
     isPaid: active,
     subscribedTier: tier,
+    ownedTier: active || PAYING.includes(row.status) ? tier : null,
     status: row.status,
     cycle: row.billing_cycle,
     currentPeriodEnd: endsOn,

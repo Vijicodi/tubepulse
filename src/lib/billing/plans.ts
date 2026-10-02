@@ -216,7 +216,11 @@ export const PLANS: Record<PlanKey, Plan> = {
     recurring: true,
     videosPerRun: 50,
     postsPerRun: 0,
-    dailyCap: 1,
+    // 2, not 1: the first thing a new user does is research a channel, and the
+    // next thing the app asks them to do is generate ideas from it. With a cap
+    // of 1 that second click was refused ("That is your 1 for today"), so no
+    // one could finish the core loop on day one. Still below the 3 a month.
+    dailyCap: 2,
     model: "mini",
     features: {
       instagram: false,

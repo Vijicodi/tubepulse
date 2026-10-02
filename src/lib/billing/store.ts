@@ -357,6 +357,34 @@ export async function getBillingState(): Promise<BillingState> {
   return billingStateFrom(await getSubscriptionRow());
 }
 
+/**
+ * The billing page's state, re-checked with Razorpay when the row is still
+ * settling.
+ *
+ * Only one Razorpay webhook has ever reached production, so a payment can sit
+ * as 'created' in our table while Razorpay already says 'active'. Asking
+ * Razorpay on load means the customer who just paid sees their plan without
+ * having to find a Refresh button. Settled rows (active, cancelled…) are not
+ * re-fetched, so a normal visit costs no API call.
+ */
+export async function getReconciledBillingState(): Promise<BillingState> {
+  const user = await getUser();
+  if (!user) return FREE_STATE;
+  const row = await getSubscriptionRow();
+  const settling = row?.status === "created" || row?.status === "pending";
+
+  if (row && settling && row.provider !== "paypal" && row.razorpay_subscription_id) {
+    try {
+      const { fetchSubscription } = await import("@/lib/razorpay/client");
+      await recordSubscription(user.id, await fetchSubscription(row.razorpay_subscription_id));
+      return billingStateFrom(await getSubscriptionRow());
+    } catch {
+      // Razorpay unreachable: show what we have rather than failing the page.
+    }
+  }
+  return billingStateFrom(row);
+}
+
 /** How many bought scrapes the signed-in user has left. Respects RLS. */
 export async function getCreditBalance(): Promise<number> {
   const user = await getUser();

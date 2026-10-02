@@ -1,9 +1,12 @@
-import { ChevronRight, ExternalLink, FileText } from "lucide-react";
+import Link from "next/link";
+import { ArrowUpRight, ChevronRight, ExternalLink, FileText, Lock } from "lucide-react";
 import { EmptyState, PanelBadge, WorkspacePanel } from "@/components/workspace/panel";
 import { TranscriptForm } from "@/components/workspace/transcript-form";
 import { ComingSoon } from "@/components/workspace/coming-soon";
 import { Button } from "@/components/ui/button";
 import { isTranscriptConfigured } from "@/lib/env";
+import { PLANS } from "@/lib/billing/plans";
+import { getBillingState } from "@/lib/billing/store";
 import { getCurrentProject } from "@/lib/projects/current";
 import { createServerClient } from "@/lib/supabase/server";
 
@@ -43,6 +46,41 @@ export default async function TranscriptPage() {
             Extract transcript
           </Button>
         </ComingSoon>
+      </WorkspacePanel>
+    );
+  }
+
+  /*
+   * Gate up front, like the hook library. Free users used to get the full
+   * form, paste a link, press the button and only then hear "Transcripts are
+   * on the paid plans" in a toast that vanished after four seconds.
+   */
+  const billing = await getBillingState();
+  if (!PLANS[billing.planKey].features.transcripts) {
+    const creator = PLANS.creator;
+    return (
+      <WorkspacePanel
+        title="Extract transcript"
+        description="Paste one public video. You get its words, and a few lines saying what it covers."
+        badge={<PanelBadge>{creator.name}</PanelBadge>}
+      >
+        <EmptyState>
+          <span className="flex flex-col items-center gap-3">
+            <Lock className="text-muted-foreground/60 size-5" aria-hidden />
+            <span>
+              Transcripts pull the words from any public video and summarise
+              them in a few lines. They start on {creator.name}; you are on{" "}
+              {PLANS[billing.planKey].name}.
+            </span>
+            <Link
+              href="/billing"
+              className="text-foreground inline-flex items-center gap-1 underline underline-offset-4"
+            >
+              See {creator.name}
+              <ArrowUpRight className="size-3.5" aria-hidden />
+            </Link>
+          </span>
+        </EmptyState>
       </WorkspacePanel>
     );
   }

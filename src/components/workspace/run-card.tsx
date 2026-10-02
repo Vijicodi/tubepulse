@@ -62,11 +62,14 @@ export function RunCard({
             {KIND_LABELS[job.kind] ?? job.kind}
           </h3>
           <p className="text-muted-foreground mt-1 text-xs">
-            {new Date(job.created_at).toLocaleString("en-US", {
+            {/* Rendered on the server, which runs in UTC: without a zone a
+                10:04 AM run in India read "4:34 AM". */}
+            {new Date(job.created_at).toLocaleString("en-IN", {
               day: "numeric",
               month: "short",
               hour: "numeric",
               minute: "2-digit",
+              timeZone: "Asia/Kolkata",
             })}
           </p>
         </div>

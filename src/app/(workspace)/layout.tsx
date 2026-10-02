@@ -58,7 +58,7 @@ export default async function WorkspaceLayout({
             resetsAt={quota.resetsAt}
             cancelAtPeriodEnd={billing?.cancelAtPeriodEnd ?? false}
             currentPeriodEnd={billing?.currentPeriodEnd ?? null}
-            subscribedTier={billing?.subscribedTier ?? null}
+            subscribedTier={billing?.ownedTier ?? null}
           />
         ) : null
       }

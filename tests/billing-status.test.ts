@@ -133,6 +133,36 @@ describe("billingStateFrom", () => {
     expect(billingStateFrom(row({ status: "halted" }), NOW).canSubscribe).toBe(true);
   });
 
+  /*
+   * THE LOCKOUT. `subscribedTier` is set on ANY row — including a checkout
+   * that was opened and closed ('created'). The pricing and billing pages
+   * used it to mean "the plan you own", so one abandoned popup labelled that
+   * card "Your plan" and disabled every upgrade button for good. `ownedTier`
+   * is the one the UI must use: set only while the tier is really theirs.
+   */
+  it("owns no tier after an abandoned checkout, a failure or a lapse", () => {
+    for (const status of ["created", "expired", "halted"] as const) {
+      const state = billingStateFrom(row({ status }), NOW);
+      expect(state.ownedTier, status).toBeNull();
+      expect(state.canSubscribe, status).toBe(true);
+    }
+    const lapsed = billingStateFrom(
+      row({ status: "cancelled", current_period_end: LAST_MONTH }),
+      NOW,
+    );
+    expect(lapsed.ownedTier).toBeNull();
+    expect(lapsed.canSubscribe).toBe(true);
+  });
+
+  it("owns the tier while paying, and while a cancelled period still runs", () => {
+    expect(billingStateFrom(row({ status: "active" }), NOW).ownedTier).toBe("studio");
+    expect(billingStateFrom(row({ status: "authenticated" }), NOW).ownedTier).toBe("studio");
+    expect(
+      billingStateFrom(row({ status: "cancelled", current_period_end: NEXT_MONTH }), NOW)
+        .ownedTier,
+    ).toBe("studio");
+  });
+
   it("offers cancel only on a live subscription that is not already cancelling", () => {
     expect(billingStateFrom(row({ status: "active" }), NOW).canCancel).toBe(true);
     expect(

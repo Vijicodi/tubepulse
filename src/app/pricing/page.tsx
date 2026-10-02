@@ -62,7 +62,7 @@ export default async function PricingPage({
       <LiquidCursor />
       <Pricing
         signedIn={Boolean(user)}
-        currentPlan={billing?.subscribedTier ?? null}
+        currentPlan={billing?.ownedTier ?? null}
         // Both halves must be present: the browser needs the key id to open
         // checkout, the server needs the secret and plan id to create the
         // subscription. Either missing means the button should not pretend.

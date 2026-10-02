@@ -40,15 +40,41 @@ export function useUpgrade(onDone?: () => void) {
    * asks Razorpay's own API through /api/billing/sync instead — which is also
    * the only path that works when the webhook cannot reach us.
    */
-  async function confirm() {
+  async function confirm(planName: string) {
+    /*
+     * POLL UNTIL THE PLAN IS REALLY THERE. This used to fire one sync and
+     * announce "You are on Pro" whatever came back. Razorpay often still says
+     * 'created' for a few seconds after the popup's success handler, so the
+     * single sync wrote 'created', the toast claimed success, and the page
+     * stayed on the free plan: "paid but my plan didn't upgrade".
+     */
+    const loading = toast.loading("Payment received. Activating your plan…");
     try {
-      await fetch("/api/billing/sync", { method: "POST" });
-      toast.success("You are on Pro. Autopay is set up and renews by itself.");
-      onDone?.();
-      router.refresh();
+      for (let attempt = 0; attempt < 8; attempt++) {
+        const response = await fetch("/api/billing/sync", { method: "POST" });
+        const data = (await response.json().catch(() => ({}))) as {
+          state?: { isPaid?: boolean };
+        };
+        if (data.state?.isPaid) {
+          toast.success(`You are on ${planName}. Autopay is set up and renews by itself.`, {
+            id: loading,
+          });
+          onDone?.();
+          router.push("/billing");
+          router.refresh();
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 2500));
+      }
+      toast.warning(
+        "Payment received — Razorpay is still confirming it. Your plan will switch on within a few minutes; the billing page updates by itself.",
+        { id: loading, duration: 12000 },
+      );
+      router.push("/billing");
     } catch {
-      toast.success(
-        "Payment authorised. It may take a moment to appear — hit Refresh on the billing page.",
+      toast.warning(
+        "Payment received, but we could not reach the server to confirm it. Open the billing page in a minute — it re-checks with Razorpay on load.",
+        { id: loading, duration: 12000 },
       );
     } finally {
       setBusy(false);
@@ -122,7 +148,7 @@ export function useUpgrade(onDone?: () => void) {
         prefill: { email: data.email ?? "" },
         theme: { color: brandColour() },
         handler: () => {
-          void confirm();
+          void confirm(data.planName ?? "your new plan");
         },
         modal: {
           // Closing the popup is not a failure. The subscription stays in

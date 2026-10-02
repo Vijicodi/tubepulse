@@ -110,11 +110,11 @@ export function GenerateIdeasButton({
 export function GenerateCost({ remaining }: { remaining: number }) {
   return (
     <p className="text-muted-foreground text-xs">
-      Each generation spends one of your{" "}
+      Each generation uses one run.{" "}
       <Link href="/billing" className="underline underline-offset-2">
-        {remaining} remaining {remaining === 1 ? "scrape" : "scrapes"}
-      </Link>
-      .
+        {remaining === 1 ? "1 run left" : `${remaining} runs left`}
+      </Link>{" "}
+      this month.
     </p>
   );
 }

@@ -12,7 +12,7 @@ import {
   formatInr,
 } from "@/lib/billing/plans";
 import { formatDate } from "@/lib/billing/status";
-import { getBillingState, getCreditHistory } from "@/lib/billing/store";
+import { getCreditHistory, getReconciledBillingState } from "@/lib/billing/store";
 import {
   billingConfigProblem,
   isBillingConfigured,
@@ -44,7 +44,7 @@ export const dynamic = "force-dynamic";
  */
 export default async function BillingPage() {
   const [state, history] = await Promise.all([
-    getBillingState(),
+    getReconciledBillingState(),
     // Legacy credits only — refill packs were retired with the four-tier
     // pricing, so this is history rather than a balance anyone can add to.
     getCreditHistory(5),
@@ -208,7 +208,7 @@ export default async function BillingPage() {
           <div className="border-border/60 mt-6 border-t pt-6">
             <UpgradeChoice
               canYearly={canYearly}
-              currentPlan={state.subscribedTier}
+              currentPlan={state.ownedTier}
               provider={provider}
             />
           </div>
