@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Camera, Loader2, MonitorPlay, Search } from "lucide-react";
+import Link from "next/link";
+import { Camera, Loader2, Lock, MonitorPlay, Search } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,9 +31,15 @@ export function ResearchForm({
   projectId,
   activeJobId,
   voiceEnabled = false,
+  instagramEnabled = true,
 }: {
   projectId: string;
   activeJobId?: string | null;
+  /**
+   * Whether this plan includes Instagram. When it does not, the option says
+   * so up front instead of letting someone type a handle and be refused.
+   */
+  instagramEnabled?: boolean;
   /**
    * Whether this plan includes voice. Passed from a server component that read
    * the plan, so this client component never decides entitlement itself.
@@ -48,6 +55,7 @@ export function ResearchForm({
   // the placeholder follows the URL rather than the toggle — otherwise it would
   // contradict what is about to happen.
   const effective = platformFromInput(channel) ?? platform;
+  const instagramLocked = effective === "instagram" && !instagramEnabled;
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -136,6 +144,9 @@ export function ResearchForm({
             >
               <option.icon className="size-3.5" aria-hidden />
               {option.label}
+              {option.value === "instagram" && !instagramEnabled && (
+                <Lock className="size-3" aria-label="Not on your plan" />
+              )}
             </button>
           );
         })}
@@ -160,7 +171,7 @@ export function ResearchForm({
         />
         <Button
           type="submit"
-          disabled={submitting || channel.trim() === ""}
+          disabled={submitting || channel.trim() === "" || instagramLocked}
           className="bg-brand-gradient h-11 text-white"
         >
           {submitting ? (
@@ -176,6 +187,16 @@ export function ResearchForm({
           )}
         </Button>
       </form>
+
+      {instagramLocked && (
+        <p className="text-muted-foreground text-xs">
+          Instagram research is on Studio and Max, because Instagram data costs
+          several times what YouTube does.{" "}
+          <Link href="/billing" className="text-foreground underline underline-offset-2">
+            See plans
+          </Link>
+        </p>
+      )}
 
       {jobId && <JobStatusCard jobId={jobId} />}
     </div>

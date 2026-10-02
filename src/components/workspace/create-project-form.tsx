@@ -71,7 +71,7 @@ export function CreateProjectForm({
             maxLength={600}
             rows={4}
             placeholder="What you want this workspace to figure out."
-            className="border-input bg-background placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/40 w-full resize-y rounded-lg border px-3 py-2.5 text-sm outline-none focus-visible:ring-[3px]"
+            className="border-input bg-transparent dark:bg-input/30 placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/40 w-full resize-y rounded-lg border px-3 py-2.5 text-sm outline-none focus-visible:ring-[3px]"
           />
         </div>
 

@@ -88,18 +88,18 @@ describe("showing a cost to a person", () => {
   it("never renders a real cost as $0.00", () => {
     // A run that cost a third of a cent is not free, and telling someone it
     // was free invites the question of why their allowance moved.
-    const tiny = formatCost(0.3);
-    expect(tiny).not.toBe("$0.00");
-    expect(tiny.startsWith("$0.00")).toBe(true); // more places, not zero
+    const tiny = formatCost(0.001);
+    expect(tiny).not.toBe("₹0.00");
+    expect(tiny.startsWith("≈₹0.00")).toBe(true); // more places, not zero
   });
 
   it("renders a genuine zero as zero", () => {
-    expect(formatCost(0)).toBe("$0.00");
+    expect(formatCost(0)).toBe("₹0.00");
   });
 
-  it("renders anything above a cent in ordinary money", () => {
-    expect(formatCost(19.89)).toBe("$0.20");
-    expect(formatCost(100)).toBe("$1.00");
+  it("shows rupees, marked approximate, since customers pay in INR", () => {
+    expect(formatCost(19.89)).toBe("≈₹17.30");
+    expect(formatCost(100)).toBe("≈₹87.00");
   });
 });
 

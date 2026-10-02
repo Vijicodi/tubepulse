@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 /**
  * Recording a short spoken request and getting text back.
@@ -48,6 +48,11 @@ export type VoiceState =
  */
 const MAX_SECONDS = 60;
 
+/** Support never changes during a page's life, so there is nothing to subscribe to. */
+function subscribeNever(): () => void {
+  return () => {};
+}
+
 /**
  * Whether this browser can record at all, and whether the plan allows it.
  *
@@ -75,19 +80,22 @@ export function useVoiceInput({
   enabled?: boolean;
 }) {
   /**
-   * Feature detection runs ONCE, lazily, on the client's first render.
+   * Feature detection without a hydration mismatch.
    *
-   * Not in an effect: setting state from an effect costs an extra render and
-   * is what the react-hooks rule flags. Not at module scope either — `window`
-   * does not exist on the server. A lazy initialiser is the one place this can
-   * happen exactly once, on the client, without a second pass.
-   *
-   * On the server it resolves to "unsupported", which renders nothing, and the
-   * client re-resolves it on mount. Rendering nothing then something is not a
-   * hydration mismatch here because the button is absent in both trees until
-   * the client decides otherwise.
+   * This used to run in a lazy useState initialiser. The server answered
+   * "unsupported" (no window) and the browser's FIRST render — which IS the
+   * hydration render — answered "idle", so React threw "Hydration failed" on
+   * every paid plan's Competitors page. useSyncExternalStore is React's tool
+   * for exactly this: the server snapshot is used during hydration, then the
+   * client snapshot takes over without a mismatch.
    */
-  const [state, setState] = useState<VoiceState>(() => detectSupport(enabled));
+  const supported = useSyncExternalStore(
+    subscribeNever,
+    () => detectSupport(enabled) !== "unsupported",
+    () => false,
+  );
+  const [phase, setState] = useState<VoiceState>("idle");
+  const state: VoiceState = supported ? phase : "unsupported";
   const [error, setError] = useState<string | null>(null);
   const [seconds, setSeconds] = useState(0);
 

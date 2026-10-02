@@ -44,6 +44,20 @@ export default async function CompetitorsPage() {
       .maybeSingle(),
   ]);
 
+  // How many posts/videos each account has stored. Instagram's post scraper
+  // returns no follower count, so for those this is the number worth showing.
+  const { data: storedVideos } = (channels ?? []).length
+    ? await supabase
+        .from("videos")
+        .select("channel_id")
+        .in("channel_id", (channels ?? []).map((c) => c.id))
+    : { data: [] as { channel_id: string }[] };
+
+  const storedCount = new Map<string, number>();
+  for (const row of storedVideos ?? []) {
+    storedCount.set(row.channel_id, (storedCount.get(row.channel_id) ?? 0) + 1);
+  }
+
   return (
     <WorkspacePanel
       title="Competitors"
@@ -53,6 +67,7 @@ export default async function CompetitorsPage() {
         projectId={project.id}
         activeJobId={runningJob?.id ?? null}
         voiceEnabled={PLANS[billing.planKey].features.voiceInput}
+        instagramEnabled={PLANS[billing.planKey].features.instagram}
       />
 
       {!channels || channels.length === 0 ? (
@@ -92,16 +107,27 @@ export default async function CompetitorsPage() {
               </div>
 
               <dl className="mt-4 flex gap-6 text-sm">
-                <div>
-                  <dt className="text-muted-foreground text-[0.68rem] tracking-wide uppercase">
-                    {channel.platform === "instagram" ? "Followers" : "Subscribers"}
-                  </dt>
-                  <dd className="font-mono tabular-nums">
-                    {channel.subscriber_count === null
-                      ? "—"
-                      : Number(channel.subscriber_count).toLocaleString()}
-                  </dd>
-                </div>
+                {channel.subscriber_count !== null ? (
+                  <div>
+                    <dt className="text-muted-foreground text-[0.68rem] tracking-wide uppercase">
+                      {channel.platform === "instagram" ? "Followers" : "Subscribers"}
+                    </dt>
+                    <dd className="font-mono tabular-nums">
+                      {Number(channel.subscriber_count).toLocaleString("en-IN")}
+                    </dd>
+                  </div>
+                ) : (
+                  // Instagram's post scraper reports no follower count; a
+                  // bare "—" under Followers read as a broken scrape.
+                  <div>
+                    <dt className="text-muted-foreground text-[0.68rem] tracking-wide uppercase">
+                      {channel.platform === "instagram" ? "Posts read" : "Videos read"}
+                    </dt>
+                    <dd className="font-mono tabular-nums">
+                      {storedCount.get(channel.id) ?? 0}
+                    </dd>
+                  </div>
+                )}
                 <div>
                   <dt className="text-muted-foreground text-[0.68rem] tracking-wide uppercase">
                     Last read

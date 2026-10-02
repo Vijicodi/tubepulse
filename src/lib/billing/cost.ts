@@ -162,16 +162,22 @@ function formatTokens(tokens: number): string {
 /**
  * Cents as money, for a figure that is usually a fraction of one cent.
  *
- * "$0.00" is the wrong answer for a real cost — it reads as free, and a
+ * "₹0.00" is the wrong answer for a real cost — it reads as free, and a
  * customer who is told a run was free will ask why their allowance moved. So
  * anything under a cent is shown to two more places, and a genuine zero is the
  * only thing that says "$0.00".
  */
 export function formatCost(cents: number): string {
-  if (cents === 0) return "$0.00";
-  if (cents < 1) return `$${(cents / 100).toFixed(4)}`;
-  return `$${(cents / 100).toFixed(2)}`;
+  // Providers bill in US cents; customers pay in rupees. Showing "$0.11" in a
+  // rupee product read like a foreign charge, so the figure is converted —
+  // and marked "≈", because the rate is a fixed approximation, not today's.
+  if (cents === 0) return "₹0.00";
+  const inr = (cents / 100) * USD_TO_INR;
+  return inr < 0.01 ? `≈₹${inr.toFixed(4)}` : `≈₹${inr.toFixed(2)}`;
 }
+
+/** Approximate rupees per US dollar, for display only. Never used to charge. */
+export const USD_TO_INR = 87;
 
 /**
  * The worst case one run can cost, used by the margin sums.

@@ -102,7 +102,7 @@ export function TranscriptForm({
         </Button>
       </form>
 
-      {jobId && <JobStatusCard jobId={jobId} />}
+      {jobId && <JobStatusCard jobId={jobId} kind="transcript" />}
     </div>
   );
 }

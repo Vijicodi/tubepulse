@@ -28,7 +28,14 @@ import type { JobStatus as Status } from "@/lib/supabase/types";
 const TYPICAL_RUN_SECONDS = 210;
 const POLL_INTERVAL_MS = 12_000;
 
-export function JobStatusCard({ jobId }: { jobId: string }) {
+export function JobStatusCard({
+  jobId,
+  kind = "research",
+}: {
+  jobId: string;
+  /** What is running, so the card does not say "reading the channel" for a transcript. */
+  kind?: "research" | "transcript";
+}) {
   const router = useRouter();
   const [status, setStatus] = useState<Status>("queued");
   const [error, setError] = useState<string | null>(null);
@@ -109,7 +116,7 @@ export function JobStatusCard({ jobId }: { jobId: string }) {
       <Icon status={status} />
 
       <div className="min-w-0 flex-1 space-y-2">
-        <p className="text-sm font-medium">{label(status)}</p>
+        <p className="text-sm font-medium">{label(status, kind)}</p>
 
         {status === "failed" && error && (
           <p className="text-destructive text-sm">{error}</p>
@@ -119,7 +126,7 @@ export function JobStatusCard({ jobId }: { jobId: string }) {
           <>
             <Progress value={percent} aria-label="Estimated progress" />
             <p className="text-muted-foreground font-mono text-xs">
-              {formatElapsed(elapsed)} elapsed · usually 2–6 minutes · safe to leave
+              {formatElapsed(elapsed)} elapsed · {kind === "transcript" ? "usually under a minute" : "usually 2–6 minutes"} · safe to leave
               this page
             </p>
           </>
@@ -127,7 +134,9 @@ export function JobStatusCard({ jobId }: { jobId: string }) {
 
         {status === "succeeded" && (
           <p className="text-muted-foreground text-xs">
-            Videos are in. Open Outliers to see what beat their own average.
+            {kind === "transcript"
+              ? "Transcript is ready below."
+              : "Read and scored. Open Outliers to see what beat its own average."}
           </p>
         )}
       </div>
@@ -148,12 +157,12 @@ function Icon({ status }: { status: Status }) {
   );
 }
 
-function label(status: Status): string {
+function label(status: Status, kind: "research" | "transcript" = "research"): string {
   switch (status) {
     case "queued":
       return "Queued — waiting for a scraper slot";
     case "running":
-      return "Reading the channel's videos";
+      return kind === "transcript" ? "Pulling the captions" : "Reading the account";
     case "succeeded":
       return "Done";
     case "failed":

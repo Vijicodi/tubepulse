@@ -60,7 +60,7 @@ export function CancelButton({ endsOn }: { endsOn: string | null }) {
     <div className="flex flex-wrap items-center gap-3">
       <p className="text-muted-foreground text-sm">
         {endsOn
-          ? "Autopay stops immediately. You keep Pro for the rest of this paid period."
+          ? "Autopay stops immediately. You keep your plan for the rest of this paid period."
           : "This turns off autopay at Razorpay."}
       </p>
       <Button type="button" variant="destructive" disabled={busy} onClick={() => void cancel()}>
@@ -68,7 +68,7 @@ export function CancelButton({ endsOn }: { endsOn: string | null }) {
         {busy ? "Cancelling…" : "Yes, cancel"}
       </Button>
       <Button type="button" variant="ghost" disabled={busy} onClick={() => setConfirming(false)}>
-        Keep Pro
+        Keep my plan
       </Button>
     </div>
   );
