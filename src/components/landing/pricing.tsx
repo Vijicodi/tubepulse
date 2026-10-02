@@ -1,5 +1,5 @@
 import { ArrowUpRight, Infinity as InfinityIcon } from "lucide-react";
-import { BrandWordmark } from "@/components/brand/logo";
+import { LegalFooter } from "@/components/legal/legal-footer";
 import { ProPlans } from "@/components/billing/pro-plans";
 import { MagneticButton } from "@/components/landing/magnetic-button";
 import { OrbitField } from "@/components/landing/orbit-field";
@@ -318,15 +318,9 @@ export function Pricing({
         </div>
       </section>
 
-      <footer className="border-border/40 border-t px-6 py-14">
-        <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-8 sm:flex-row">
-          <BrandWordmark className="max-h-8 w-auto" />
-          <p className="text-muted-foreground text-xs">
-            Prices in Indian rupees, inclusive of applicable taxes. Payments
-            and autopay handled by Razorpay.
-          </p>
-        </div>
-      </footer>
+      {/* Every policy linked from the front door: Razorpay's website review
+          checks that Terms, Privacy, Refunds, Shipping and Contact are reachable. */}
+      <LegalFooter />
     </div>
   );
 }

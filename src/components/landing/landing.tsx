@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { LegalFooter } from "@/components/legal/legal-footer";
 import {
   ArrowUpRight,
   Crosshair,
@@ -11,14 +11,12 @@ import {
   Sparkles,
   Workflow,
 } from "lucide-react";
-import { BrandWordmark } from "@/components/brand/logo";
 import { MagneticButton } from "@/components/landing/magnetic-button";
 import { OrbitField } from "@/components/landing/orbit-field";
 import { PulseField } from "@/components/landing/pulse-field";
 import { SiteNav } from "@/components/landing/site-nav";
 import { TiltCard } from "@/components/landing/tilt-card";
 import { PLANS, spellOutCapitalised } from "@/lib/billing/plans";
-import { SUPPORT_EMAIL } from "@/lib/support";
 
 /**
  * The landing page.
@@ -516,38 +514,9 @@ export function Landing({ signedIn = false }: { signedIn?: boolean }) {
       </section>
 
       {/* ------------------------------------------------------------ footer */}
-      <footer className="border-border/40 border-t px-6 py-14">
-        <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-8 sm:flex-row">
-          <BrandWordmark className="max-h-8 w-auto" />
-          <nav className="flex gap-8 text-sm">
-            <Link
-              href="/pricing"
-              className="text-muted-foreground hover:text-foreground transition-colors"
-            >
-              Pricing
-            </Link>
-            <Link
-              href="/login"
-              className="text-muted-foreground hover:text-foreground transition-colors"
-            >
-              Sign in
-            </Link>
-            {/* A real address, not a form. Someone deciding whether to trust a
-                paid tool looks for a way to reach a human before they look for
-                features, and a contact form answers a question they have not
-                asked yet. `SUPPORT_EMAIL` is the single definition. */}
-            <a
-              href={`mailto:${SUPPORT_EMAIL}`}
-              className="text-muted-foreground hover:text-foreground transition-colors"
-            >
-              {SUPPORT_EMAIL}
-            </a>
-          </nav>
-          <p className="text-muted-foreground text-xs">
-            For creators researching a niche they do not yet dominate.
-          </p>
-        </div>
-      </footer>
+      {/* Every policy linked from the front door: Razorpay's website review
+          checks that Terms, Privacy, Refunds, Shipping and Contact are reachable. */}
+      <LegalFooter />
     </div>
   );
 }

@@ -518,3 +518,55 @@
     animation: none;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Policy pages (About, Contact, Terms, Privacy, Refunds, Shipping).
+   Read by payment reviewers and customers: a comfortable measure, clear
+   section heads, nothing animated.
+   --------------------------------------------------------------------------- */
+.legal-prose {
+  display: grid;
+  gap: 1.1rem;
+  max-width: 68ch;
+  line-height: 1.75;
+  color: color-mix(in oklab, var(--foreground) 86%, transparent);
+}
+.legal-prose h2 {
+  margin-top: 1.6rem;
+  font-family: var(--font-display), Georgia, serif;
+  font-size: 1.6rem;
+  line-height: 1.2;
+  color: var(--foreground);
+  text-wrap: balance;
+}
+.legal-prose ul {
+  display: grid;
+  gap: 0.45rem;
+  padding-left: 1.2rem;
+  list-style: disc;
+}
+.legal-prose a {
+  color: var(--foreground);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.legal-prose strong {
+  color: var(--foreground);
+}
+.legal-prose dl {
+  display: grid;
+  grid-template-columns: minmax(7rem, max-content) 1fr;
+  gap: 0.7rem 1.5rem;
+}
+.legal-prose dt {
+  color: var(--muted-foreground);
+  font-size: 0.85rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding-top: 0.2rem;
+}
+.legal-prose dd {
+  margin: 0;
+  color: var(--foreground);
+  overflow-wrap: anywhere;
+}
