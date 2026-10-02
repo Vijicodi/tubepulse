@@ -155,6 +155,7 @@ export default async function IdeaLabPage() {
                     channelId={group.id}
                     channelName={group.name}
                     hasIdeas={group.ideas.length > 0}
+                    blockedReason={quota && !quota.canScrape ? quota.reason : null}
                   />
                 )}
               </div>

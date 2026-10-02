@@ -24,11 +24,17 @@ export function GenerateIdeasButton({
   channelId,
   channelName,
   hasIdeas,
+  blockedReason = null,
 }: {
   channelId: string;
   channelName: string;
   /** Ideas already exist here, so this press replaces nothing but costs again. */
   hasIdeas: boolean;
+  /**
+   * Why a press would be refused right now (daily cap, month used up). Shown
+   * instead of a live button, so nobody clicks only to be told no.
+   */
+  blockedReason?: string | null;
 }) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
@@ -91,6 +97,18 @@ export function GenerateIdeasButton({
         <Button variant="ghost" className="h-9" onClick={() => setConfirming(false)}>
           Cancel
         </Button>
+      </div>
+    );
+  }
+
+  if (blockedReason) {
+    return (
+      <div className="flex flex-col items-end gap-1">
+        <Button disabled className="bg-brand-gradient h-9 text-white">
+          <Sparkles aria-hidden />
+          {hasIdeas ? "Generate again" : "Generate ideas"}
+        </Button>
+        <span className="text-muted-foreground max-w-56 text-right text-xs">{blockedReason}</span>
       </div>
     );
   }
