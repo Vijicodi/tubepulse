@@ -14,7 +14,7 @@ import { SUPPORT_EMAIL } from "@/lib/support";
  */
 export const LEGAL = {
   /** The merchant on the Razorpay account. Must match the KYC exactly. */
-  legalName: "Vidhya Vijay",
+  legalName: "Vishruth Vijay",
   brand: "TubePulse",
   site: "tube-pulse.org",
   email: SUPPORT_EMAIL,
@@ -25,7 +25,7 @@ export const LEGAL = {
   /** Courts for disputes — the city of the operating address. */
   jurisdiction: "",
   /** Shown on every policy page. Change it whenever a policy changes. */
-  updated: "2 October 2026",
+  updated: "4 October 2026",
   /** How fast support replies, promised on Contact and in the policies. */
   replyWithin: "2 working days",
 } as const;
