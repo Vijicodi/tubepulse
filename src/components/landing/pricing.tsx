@@ -136,7 +136,7 @@ export function Pricing({
       <SiteNav signedIn={signedIn} current="pricing" />
 
       {/* -------------------------------------------------------------- head */}
-      <section className="relative overflow-hidden px-6 pt-44 pb-24">
+      <section id="main" tabIndex={-1} className="relative overflow-hidden px-6 pt-44 pb-24 outline-none">
         <OrbitField />
         <div
           aria-hidden

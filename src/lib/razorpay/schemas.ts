@@ -20,6 +20,17 @@ export const epochSeconds = z
     value === null || value === undefined ? null : new Date(value * 1000).toISOString(),
   );
 
+/**
+ * `notes`, as Razorpay actually sends it. An EMPTY notes is serialised as `[]`,
+ * not `{}` — their documented subscription.charged sample does it on the
+ * payment. Accepting only an object 400'd every real charge and renewal.
+ * An empty array becomes `{}`; anything else is validated as before.
+ */
+const notesSchema = z.preprocess(
+  (value) => (Array.isArray(value) && value.length === 0 ? {} : value),
+  z.record(z.string(), z.unknown()).nullish(),
+);
+
 export const razorpaySubscriptionSchema = z.object({
   id: z.string().min(1),
   entity: z.literal("subscription").optional(),
@@ -31,7 +42,7 @@ export const razorpaySubscriptionSchema = z.object({
   ended_at: epochSeconds,
   charge_at: epochSeconds,
   short_url: z.string().nullish(),
-  notes: z.record(z.string(), z.unknown()).nullish(),
+  notes: notesSchema,
 });
 
 export type RazorpaySubscription = z.infer<typeof razorpaySubscriptionSchema>;
@@ -63,7 +74,7 @@ export const razorpayOrderSchema = z.object({
   currency: z.string(),
   status: z.string(),
   receipt: z.string().nullish(),
-  notes: z.record(z.string(), z.unknown()).nullish(),
+  notes: notesSchema,
 });
 
 export type RazorpayOrder = z.infer<typeof razorpayOrderSchema>;
@@ -76,7 +87,7 @@ export const razorpayPaymentSchema = z.object({
   currency: z.string(),
   status: z.string(),
   email: z.string().nullish(),
-  notes: z.record(z.string(), z.unknown()).nullish(),
+  notes: notesSchema,
 });
 
 export type RazorpayPayment = z.infer<typeof razorpayPaymentSchema>;

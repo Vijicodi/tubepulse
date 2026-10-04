@@ -169,14 +169,23 @@ export default async function ChannelPage({
           <>
             <StatGrid
               tiles={[
-                {
-                  label: isInstagram ? "Followers" : "Subscribers",
-                  value:
-                    channel.subscriber_count === null
-                      ? "—"
-                      : compact(Number(channel.subscriber_count)),
-                  note: `${all.length} ${isInstagram ? "posts" : "videos"} collected`,
-                },
+                // Instagram's post scraper never reports followers (the
+                // dataset has no such field), so a "Followers —" tile read as
+                // a broken scrape. Same fallback as the Competitors card: show
+                // the number we do have.
+                channel.subscriber_count === null
+                  ? {
+                      label: isInstagram ? "Posts read" : "Videos read",
+                      value: all.length.toLocaleString("en-IN"),
+                      note: isInstagram
+                        ? "Instagram post data carries no follower count"
+                        : "Subscriber count not reported",
+                    }
+                  : {
+                      label: isInstagram ? "Followers" : "Subscribers",
+                      value: compact(Number(channel.subscriber_count)),
+                      note: `${all.length} ${isInstagram ? "posts" : "videos"} collected`,
+                    },
                 {
                   label: "Breakouts",
                   value: breakouts.toLocaleString("en-IN"),
@@ -238,7 +247,7 @@ export default async function ChannelPage({
                   reads the breakouts above and proposes concepts from them.
                 </EmptyState>
               ) : (
-                <div className="grid gap-3">
+                <div className="grid grid-cols-1 gap-3">
                   {ideas.map((idea) => (
                     <IdeaCard
                       key={idea.id}

@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { publicEnv, isSupabaseConfigured } from "@/lib/public-env";
 import { NAV_ITEMS } from "@/lib/nav";
+import { safeNext } from "@/lib/auth/safe-next";
 
 /**
  * Session refresh + route protection.
@@ -79,9 +80,12 @@ export async function middleware(request: NextRequest) {
   );
 
   if (!user && isWorkspace) {
+    // Keep the query string: /billing?plan=studio&cycle=yearly must come back
+    // as exactly that after login, or the plan someone picked is lost.
     const url = request.nextUrl.clone();
     url.pathname = "/login";
-    url.searchParams.set("next", pathname);
+    url.search = "";
+    url.searchParams.set("next", pathname + request.nextUrl.search);
     return NextResponse.redirect(url);
   }
 
@@ -90,10 +94,10 @@ export async function middleware(request: NextRequest) {
   // the workspace. Redirecting it meant the marketing page was unreachable by
   // the one person most likely to want to look at it.
   if (user && pathname === "/login") {
-    const url = request.nextUrl.clone();
-    url.pathname = "/projects";
-    url.search = "";
-    return NextResponse.redirect(url);
+    // Honour ?next= — a signed-in user following a "log in to buy Studio"
+    // link should land on Studio, not on the projects list.
+    const target = safeNext(request.nextUrl.searchParams.get("next") ?? "/projects");
+    return NextResponse.redirect(new URL(target, request.url));
   }
 
   return response;

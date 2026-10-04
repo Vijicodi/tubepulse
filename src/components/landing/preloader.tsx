@@ -2,18 +2,40 @@
 
 import { useEffect, useRef, useState } from "react";
 import { BrandWordmark } from "@/components/brand/logo";
+import { INTRO_SEEN_COOKIE } from "./intro-cookie";
+
+/**
+ * The longest the curtain may hold the page, measured from navigation start
+ * rather than from hydration, so a slow phone's script time counts against it.
+ */
+const DEADLINE_MS = 550;
+/** The beat at 100 before the panels part. */
+const HOLD_MS = 120;
+/** How long the panels take to slide away. */
+const EXIT_MS = 600;
+
+function rememberSeen() {
+  try {
+    document.cookie = `${INTRO_SEEN_COOKIE}=1; path=/; max-age=31536000; samesite=lax`;
+  } catch {
+    // A blocked cookie only means the intro plays again next time.
+  }
+}
 
 /**
  * The loading screen.
  *
- * An honest one. The counter is driven by real progress events — fonts becoming
- * ready, the window load event — not a fake timer that always takes 2.4
- * seconds. That matters here for the same reason it matters on the job progress
- * bar in the workspace: the product's whole pitch is evidence over vibes, and a
- * fabricated progress bar is the smallest possible lie to open with.
+ * An honest one, within a budget. The counter climbs as real work finishes —
+ * fonts ready, the document parsed — not on a fake timer. But it USED to wait
+ * for the window load event as well, which waits on every image and video on
+ * the page, and that held first-time visitors for 4 to 6 seconds behind a
+ * curtain covering a hero that was already server-rendered and readable.
  *
- * What is choreographed is the exit: once real work is done, the counter
- * finishes, holds for a beat, and the panels split away.
+ * So the real signals now race a deadline: whichever is first gets the counter
+ * to 100, and the curtain is clear within about a second of navigation. A CSS
+ * failsafe in index.css (.tp-preloader) fades it regardless if hydration is
+ * late, and the page does not render it at all once the cookie says the intro
+ * has been seen, or for prefers-reduced-motion.
  */
 export function Preloader() {
   const [progress, setProgress] = useState(0);
@@ -24,14 +46,11 @@ export function Preloader() {
   useEffect(() => {
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-    // Anyone arriving a second time in the same session has the assets cached;
-    // making them watch the intro again is theatre at their expense.
-    //
-    // Dismissed on the next frame rather than synchronously: the curtain is
-    // server-rendered so it covers the first paint, and setting state directly
-    // in an effect body triggers a cascading render. One frame is imperceptible.
-    const seen = sessionStorage.getItem("tp-intro-seen") === "1";
-    if (seen || reduced) {
+    // Hidden by CSS already for reduced motion; this just removes the node.
+    // Dismissed on the next frame rather than synchronously: setting state
+    // directly in an effect body triggers a cascading render.
+    if (reduced) {
+      rememberSeen();
       const skip = requestAnimationFrame(() => setGone(true));
       return () => cancelAnimationFrame(skip);
     }
@@ -43,14 +62,15 @@ export function Preloader() {
 
     let raf = 0;
     let settled = 0;
+    const timers: number[] = [];
 
-    // Real signals. Each one that resolves raises the ceiling the counter may
-    // climb to, so the number reflects work actually finished.
+    // Real signals. DOMContentLoaded, not load: load waits for every image and
+    // video below the fold, none of which the first screen needs.
     const signals: Promise<unknown>[] = [
       document.fonts?.ready ?? Promise.resolve(),
       new Promise<void>((resolve) => {
-        if (document.readyState === "complete") return resolve();
-        window.addEventListener("load", () => resolve(), { once: true });
+        if (document.readyState !== "loading") return resolve();
+        document.addEventListener("DOMContentLoaded", () => resolve(), { once: true });
       }),
     ];
     signals.forEach((signal) => {
@@ -59,27 +79,29 @@ export function Preloader() {
       });
     });
 
-    // Never hold the page hostage to a signal that hangs.
-    const failsafe = window.setTimeout(() => {
-      settled = signals.length;
-    }, 4000);
-
     function tick() {
       raf = requestAnimationFrame(tick);
       setProgress((current) => {
-        const ceiling = 25 + (settled / signals.length) * 75;
+        const fromSignals = 25 + (settled / signals.length) * 75;
+        // The deadline floor: by DEADLINE_MS after navigation the counter is
+        // at 100 whatever the signals say.
+        const fromClock = (performance.now() / DEADLINE_MS) * 100;
+        const ceiling = Math.min(Math.max(fromSignals, fromClock), 100);
         // Ease into the ceiling so the number decelerates instead of jumping.
-        const next = current + Math.max((ceiling - current) * 0.06, 0.35);
+        const next = current + Math.max((ceiling - current) * 0.22, 1);
         const capped = Math.min(next, ceiling);
 
         if (capped >= 99.5 && !doneRef.current) {
           doneRef.current = true;
-          sessionStorage.setItem("tp-intro-seen", "1");
-          window.setTimeout(() => setLeaving(true), 260);
-          window.setTimeout(() => {
-            document.body.style.overflow = previousOverflow;
-            setGone(true);
-          }, 1400);
+          rememberSeen();
+          timers.push(
+            window.setTimeout(() => {
+              setLeaving(true);
+              // Give scroll back as the panels start to part, not after.
+              document.body.style.overflow = previousOverflow;
+            }, HOLD_MS),
+            window.setTimeout(() => setGone(true), HOLD_MS + EXIT_MS + 50),
+          );
         }
         return capped;
       });
@@ -88,7 +110,7 @@ export function Preloader() {
 
     return () => {
       cancelAnimationFrame(raf);
-      window.clearTimeout(failsafe);
+      timers.forEach((timer) => window.clearTimeout(timer));
       document.body.style.overflow = previousOverflow;
     };
   }, []);
@@ -102,18 +124,18 @@ export function Preloader() {
       /*
        * pointer-events-none is load-bearing, not cosmetic.
        *
-       * The exit runs in two stages: the panels slide away at +260ms, and the
-       * element is only removed at +1400ms. For that second in between, the
+       * The exit runs in two stages: the panels slide away, and the element is
+       * only removed once they have finished. In the gap between, the
        * curtain is invisible but still a full-viewport element at z-90 — and
        * it swallowed every click on the page. The pricing CTAs looked broken
        * because they are the first thing anyone reaches for on a cold load;
-       * the nav was just as dead. sessionStorage hid it from us, since a
-       * reload skips the intro entirely and "fixes" it.
+       * the nav was just as dead. Skipping the intro on a repeat visit hid it
+       * from us, since a reload never shows the curtain and "fixes" it.
        *
        * Nothing in here is interactive, so refusing pointer events outright
        * is correct at every stage, not only while leaving.
        */
-      className="pointer-events-none fixed inset-0 z-[90]"
+      className="tp-preloader pointer-events-none fixed inset-0 z-[90]"
       role="status"
       aria-live="polite"
       aria-label={`Loading, ${shown} percent`}
@@ -121,13 +143,13 @@ export function Preloader() {
       {/* Two panels that split apart, rather than a single fade. The seam is
           where the brand gradient shows through. */}
       <div
-        className={`bg-background absolute inset-x-0 top-0 h-1/2 transition-transform duration-[900ms] ${
+        className={`bg-background absolute inset-x-0 top-0 h-1/2 transition-transform duration-[600ms] ${
           leaving ? "-translate-y-full" : "translate-y-0"
         }`}
         style={{ transitionTimingFunction: "cubic-bezier(0.76, 0, 0.24, 1)" }}
       />
       <div
-        className={`bg-background absolute inset-x-0 bottom-0 h-1/2 transition-transform duration-[900ms] ${
+        className={`bg-background absolute inset-x-0 bottom-0 h-1/2 transition-transform duration-[600ms] ${
           leaving ? "translate-y-full" : "translate-y-0"
         }`}
         style={{ transitionTimingFunction: "cubic-bezier(0.76, 0, 0.24, 1)" }}

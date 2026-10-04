@@ -33,6 +33,15 @@
  * names" problem the old note predicted — accepted deliberately, because the
  * alternative is charging Indian customers $49.
  * ---------------------------------------------------------------------------
+ * MEASURED 2026-10-04 — READ BEFORE TRUSTING THE TABLE BELOW. The "Apify
+ * Rs 4.50" line was wrong: the YouTube actor bills $0.004 a video, about Rs 17
+ * for 50 videos and Rs 70 for 200, which put Studio and Max under water at full
+ * use. YouTube is now read through YouTube's own Data API, which is FREE
+ * (lib/youtube/data-api.ts) — so that line is ~Rs 0, and the Apify actor is
+ * only a fallback. Real Apify costs that remain: Instagram $0.0027 a post
+ * (Rs 9-14 a run), transcripts ~$0.001. With those, full-use cost is roughly
+ * Rs 300 on Studio and Rs 1,260 on Max — comfortably inside the prices.
+ *
  * THE ECONOMICS. Do not "improve" these numbers without redoing this sum.
  * `tests/billing-status.test.ts` fails if any of it stops holding.
  *

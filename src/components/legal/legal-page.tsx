@@ -28,7 +28,7 @@ export async function LegalPage({
     <div className="tp-landing bg-background text-foreground relative min-h-screen">
       <SiteNav signedIn={Boolean(user)} />
 
-      <main className="mx-auto max-w-3xl px-6 pt-40 pb-24">
+      <main id="main" tabIndex={-1} className="mx-auto max-w-3xl px-6 pt-40 pb-24 outline-none">
         <p className="label-mono mb-6">{LEGAL.brand}</p>
         <h1 className="font-display text-[clamp(2.4rem,6vw,4rem)] leading-[1.05] text-balance">
           {title}

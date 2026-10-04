@@ -12,6 +12,7 @@ import {
   formatInr,
 } from "@/lib/billing/plans";
 import { formatDate } from "@/lib/billing/status";
+import { unusedRefundPaise } from "@/lib/billing/switch";
 import { getCreditHistory, getReconciledBillingState } from "@/lib/billing/store";
 import {
   billingConfigProblem,
@@ -77,6 +78,24 @@ export default async function BillingPage() {
   const testMode = ready && razorpayMode() === "test";
   // The tier they are actually on right now, and the one worth showing next.
   const plan = PLANS[state.planKey];
+  // What a switch would hand back for the current plan's unused days, at list
+  // price — the real refund is computed from the actual payment at the time.
+  const refundEstimatePaise =
+    state.ownedTier && state.currentPeriodEnd
+      ? unusedRefundPaise({
+          amountPaidPaise:
+            PLAN_PRICES[state.ownedTier][state.cycle === "yearly" ? "yearly" : "monthly"].pricePaise,
+          periodEnd: new Date(state.currentPeriodEnd),
+          periodStart: new Date(
+            new Date(state.currentPeriodEnd).getTime() -
+              (state.cycle === "yearly" ? 365 : 30) * 24 * 60 * 60 * 1000,
+          ),
+          now: new Date(),
+        })
+      : 0;
+  const ending =
+    state.cancelAtPeriodEnd || state.status === "cancelled" || state.status === "completed";
+  const lapsed = state.status === "halted" || state.status === "expired";
   const upgrade =
     state.planKey === "agency" ? null : PLANS[state.planKey === "free" ? HIGHLIGHTED_PLAN : "agency"];
 
@@ -199,16 +218,18 @@ export default async function BillingPage() {
           precisely the people most likely to move up a tier. A customer on
           Creator had no way to reach Studio from inside the app at all.
 
-          For a subscriber the panel lists only the tiers ABOVE theirs and
-          explains that switching means cancelling the current mandate first;
-          its pay button stays disabled until they do, because the checkout
-          route refuses a second subscription while one is active.
+          For a subscriber it is a PLAN SWITCHER (2026-10-04): any tier or
+          cycle except the exact one they have. Paying starts the new plan at
+          once; the old one is cancelled and its unused days refunded —
+          lib/billing/switch.ts and completeSwitch in store.ts.
         */}
         {ready && (
           <div className="border-border/60 mt-6 border-t pt-6">
             <UpgradeChoice
               canYearly={canYearly}
               currentPlan={state.ownedTier}
+              currentCycle={state.cycle === "yearly" ? "yearly" : "monthly"}
+              refundEstimatePaise={refundEstimatePaise}
               provider={provider}
             />
           </div>
@@ -225,15 +246,26 @@ export default async function BillingPage() {
             value={String(plan.videosPerRun)}
             note="per channel read"
           />
+          {/* A cancelled/completed plan does not renew, and a halted one failed
+              to — saying "Renews … charged automatically" under a headline
+              that says the opposite was found on 2026-10-04. */}
           <Stat
-            label={state.cancelAtPeriodEnd ? `${plan.name} until` : "Renews"}
-            value={state.currentPeriodEnd ? formatDate(state.currentPeriodEnd) : "—"}
+            label={ending ? `${plan.name} until` : lapsed ? "Renewal" : "Renews"}
+            value={
+              lapsed
+                ? "Failed"
+                : state.currentPeriodEnd
+                  ? formatDate(state.currentPeriodEnd)
+                  : "—"
+            }
             note={
-              state.cancelAtPeriodEnd
+              ending
                 ? "then back to Scout"
-                : state.isPaid
-                  ? "charged automatically"
-                  : "nothing scheduled"
+                : lapsed
+                  ? "the payment did not go through"
+                  : state.isPaid
+                    ? "charged automatically"
+                    : "nothing scheduled"
             }
           />
           <Stat

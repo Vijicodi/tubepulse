@@ -7,6 +7,7 @@ import {
   ingestTranscript,
 } from "@/lib/apify/ingest";
 import { createServerClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 /** True when this job's channel is an Instagram account. */
 async function isInstagram(
@@ -66,6 +67,12 @@ export async function POST(
     return NextResponse.json({ error: "Job not found." }, { status: 404 });
   }
 
+  // Ownership is proven by the RLS-scoped read above. The writes below go
+  // through the service role because users may only READ their jobs: a job row
+  // is what the run allowance counts, so a user who could edit one could
+  // refund their own runs. See 0018_jobs_read_only.sql.
+  const admin = createAdminClient();
+
   // Already finished — nothing to do. The webhook probably beat us here.
   if (job.status === "succeeded" || job.status === "failed") {
     return NextResponse.json({ status: job.status });
@@ -84,11 +91,11 @@ export async function POST(
       // Same dispatch as the webhook, and it must stay the same — these two
       // paths diverging is the bug that only reproduces on one machine.
       if (job.kind === "transcript") {
-        await ingestTranscript(supabase, id, run.datasetId);
+        await ingestTranscript(admin, id, run.datasetId);
       } else if (await isInstagram(supabase, job.channel_id)) {
-        await ingestInstagramRun(supabase, id, run.datasetId);
+        await ingestInstagramRun(admin, id, run.datasetId);
       } else {
-        await ingestRun(supabase, id, run.datasetId);
+        await ingestRun(admin, id, run.datasetId);
       }
 
       return NextResponse.json({ status: "succeeded" });
@@ -97,14 +104,14 @@ export async function POST(
     if (["FAILED", "ABORTED", "TIMED-OUT", "TIMING-OUT"].includes(run.status)) {
       const noun = job.kind === "transcript" ? "Transcript" : "Scrape";
       const message = `${noun} ${run.status.toLowerCase().replace("-", " ")}.`;
-      await failJob(supabase, id, message);
+      await failJob(admin, id, message);
       return NextResponse.json({ status: "failed", error: message });
     }
 
     return NextResponse.json({ status: "running" });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Could not check the run.";
-    await failJob(supabase, id, message);
+    await failJob(admin, id, message);
     return NextResponse.json({ status: "failed", error: message });
   }
 }

@@ -203,3 +203,52 @@ export async function fetchPayment(paymentId: string): Promise<RazorpayPayment> 
   const json = await call(`/payments/${paymentId}`, { method: "GET" });
   return razorpayPaymentSchema.parse(json);
 }
+
+/**
+ * The most recent PAID invoice of a subscription: which payment it was, how
+ * much was paid, and the period it bought. Used to refund the unused part of
+ * a plan when someone switches (lib/billing/switch.ts).
+ */
+export async function latestPaidInvoice(subscriptionId: string): Promise<{
+  paymentId: string;
+  amountPaidPaise: number;
+  periodStart: Date;
+  periodEnd: Date;
+} | null> {
+  const json = (await call(
+    `/invoices?subscription_id=${encodeURIComponent(subscriptionId)}&count=10`,
+    { method: "GET" },
+  )) as { items?: Array<Record<string, unknown>> } | null;
+
+  const paid = (json?.items ?? [])
+    .filter(
+      (invoice) =>
+        invoice.status === "paid" &&
+        typeof invoice.payment_id === "string" &&
+        typeof invoice.amount_paid === "number" &&
+        typeof invoice.billing_start === "number" &&
+        typeof invoice.billing_end === "number",
+    )
+    .sort((a, b) => (b.billing_start as number) - (a.billing_start as number))[0];
+
+  if (!paid) return null;
+  return {
+    paymentId: paid.payment_id as string,
+    amountPaidPaise: paid.amount_paid as number,
+    periodStart: new Date((paid.billing_start as number) * 1000),
+    periodEnd: new Date((paid.billing_end as number) * 1000),
+  };
+}
+
+/** Refund part of a captured payment. Amount in PAISE. */
+export async function refundPayment(
+  paymentId: string,
+  amountPaise: number,
+  notes: Record<string, string>,
+): Promise<{ id: string }> {
+  const json = (await call(`/payments/${encodeURIComponent(paymentId)}/refund`, {
+    method: "POST",
+    body: { amount: amountPaise, speed: "normal", notes },
+  })) as { id?: unknown };
+  return { id: String(json?.id ?? "") };
+}

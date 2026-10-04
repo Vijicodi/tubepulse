@@ -31,14 +31,22 @@ import { useUpgrade } from "./use-upgrade";
  * per month, and the amount that actually leaves the account. Quoting only the
  * first is how someone expecting $40 gets a $490 debit.
  */
+const ALL_PAID: PaidPlanKey[] = ["creator", "studio", "agency"];
+
 export function UpgradeChoice({
   canYearly,
   currentPlan = null,
+  currentCycle = "monthly",
+  refundEstimatePaise = 0,
   provider = "razorpay",
 }: {
   canYearly: boolean;
-  /** The tier they are on, so it is not offered back to them. */
+  /** The tier they are on. With one, this panel SWITCHES plans. */
   currentPlan?: PaidPlanKey | null;
+  /** The cycle they are on — monthly → yearly on the same tier is a switch too. */
+  currentCycle?: BillingCycle;
+  /** Roughly what the unused days of the current plan will be refunded. */
+  refundEstimatePaise?: number;
   /** Which gateway this customer checks out through. Decided server-side. */
   provider?: "razorpay" | "paypal";
 }) {
@@ -54,15 +62,23 @@ export function UpgradeChoice({
    * Razorpay would happily create a SECOND mandate on the same card for the
    * same tier — two charges a month, and the customer finds out before we do.
    */
-  const offered = plansAbove(currentPlan);
+  //
+  // A PAYING customer now sees every tier: a switch is a new subscription plus
+  // a refund of the old one's unused days (lib/billing/switch.ts), so moving
+  // down or to yearly is as safe as moving up — the one combination refused is
+  // the plan they already have, which is what made a second mandate possible.
+  const offered: PaidPlanKey[] = currentPlan ? ALL_PAID : plansAbove(currentPlan);
 
   // Default to the recommended tier when it is actually on offer, otherwise
   // the cheapest upgrade available — never a tier that is not rendered, which
   // would leave the pay button buying something invisible.
-  const [plan, setPlan] = useState<PaidPlanKey>(
-    () => offered.find((key) => key === "studio") ?? offered[0] ?? "studio",
+  const [plan, setPlan] = useState<PaidPlanKey>(() =>
+    currentPlan
+      ? (plansAbove(currentPlan)[0] ?? currentPlan)
+      : (offered.find((key) => key === "studio") ?? offered[0] ?? "studio"),
   );
-  const [cycle, setCycle] = useState<BillingCycle>("monthly");
+  const [cycle, setCycle] = useState<BillingCycle>(currentPlan ? currentCycle : "monthly");
+  const isCurrent = currentPlan === plan && currentCycle === cycle;
   const [promo, setPromo] = useState<AppliedPromo | null>(null);
   const { busy, start } = useUpgrade();
 
@@ -91,7 +107,7 @@ export function UpgradeChoice({
   return (
     <div className="space-y-4">
       <p className="text-muted-foreground text-[0.68rem] tracking-[0.18em] uppercase">
-        {currentPlan ? "Upgrade your plan" : "Choose a plan"}
+        {currentPlan ? "Change your plan" : "Choose a plan"}
       </p>
 
       <div
@@ -233,22 +249,25 @@ export function UpgradeChoice({
         without this notice the button would simply return an error the
         customer could do nothing about.
       */}
-      {currentPlan && (
+      {currentPlan && !isCurrent && (
         <div className="border-border/60 bg-muted/30 space-y-2 rounded-lg border px-3 py-3">
           <p className="text-xs leading-relaxed">
-            <strong>Moving from {PLANS[currentPlan].name} to {PLANS[plan].name}.</strong>{" "}
-            Your {PLANS[currentPlan].name} mandate has to be cancelled before the
-            new one can start — Razorpay fixes the amount to the plan, so it
-            cannot simply be changed.
+            <strong>
+              Switching from {PLANS[currentPlan].name}
+              {currentCycle !== cycle ? ` (${currentCycle})` : ""} to {PLANS[plan].name}
+              {currentCycle !== cycle ? ` (${cycle})` : ""}.
+            </strong>{" "}
+            It starts the moment you pay {formatInr(price.priceInr)}.
           </p>
           <p className="text-muted-foreground text-xs leading-relaxed">
-            You keep {PLANS[currentPlan].name} until the period you have already
-            paid for runs out. Nothing is charged twice, and the new plan is set
-            up in the same window.
-          </p>
-          <p className="text-muted-foreground text-xs leading-relaxed">
-            Cancel {PLANS[currentPlan].name} on the button below this panel
-            first, then come back and start {PLANS[plan].name}.
+            {PLANS[currentPlan].name} stops at the same time, and the days you
+            have not used yet
+            {refundEstimatePaise > 0
+              ? ` — about ${formatInr(Math.floor(refundEstimatePaise / 100))} —`
+              : ""}{" "}
+            go back to the account you paid from within 5–7 working days. You
+            never pay twice for the same day. If you close the payment window,
+            nothing changes.
           </p>
         </div>
       )}
@@ -256,17 +275,21 @@ export function UpgradeChoice({
       <div className="flex flex-wrap items-center gap-4">
         <Button
           type="button"
-          disabled={busy || Boolean(currentPlan)}
+          disabled={busy || isCurrent}
           onClick={() => start({ plan, cycle, promoCode: promo?.code, provider })}
         >
           {busy && <Loader2 className="mr-2 size-4 animate-spin" aria-hidden />}
           {busy
             ? "Opening Razorpay…"
-            : `Get ${PLANS[plan].name} — ${formatInr(
+            : isCurrent
+              ? "This is your current plan"
+              : `${currentPlan ? "Switch to" : "Get"} ${PLANS[plan].name} — ${formatInr(
                 (promo ? promo.finalCents : price.pricePaise) / 100,
               )}${cycle === "yearly" ? "/yr" : "/mo"}`}
         </Button>
 
+        {/* Codes are for a first subscription; the checkout refuses them on a switch. */}
+        {!currentPlan && (
         <PromoField
           target="subscription"
           plan={plan}
@@ -275,6 +298,7 @@ export function UpgradeChoice({
           onApplied={setPromo}
           disabled={busy}
         />
+        )}
       </div>
 
       {canYearly && cycle === "yearly" && (

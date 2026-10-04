@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ArrowRight, Check, Loader2, Mic, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { spokenTargetLabel } from "@/lib/platform/display";
 import { useVoiceInput } from "./use-voice-input";
 
 /**
@@ -18,6 +19,11 @@ import { useVoiceInput } from "./use-voice-input";
  * endpoint the typed form calls, with all of its quota checks. A misheard
  * request costs a moment rather than a run, and there is exactly one path that
  * spends money — which is the one that can be reasoned about.
+ *
+ * That includes a channel named outright. It used to go straight through,
+ * which meant a mishearing ("mkbhd" heard as "mkbd") spent a run on an
+ * account nobody asked for. Now the heard handle is shown with the price on
+ * the button, and nothing is spent until it is tapped.
  * ---------------------------------------------------------------------------
  * THE STEPS ARE SHOWN AS THEY LAND, because a minute of silence looks like a
  * frozen screen. That is the second half of what makes their version feel
@@ -34,6 +40,12 @@ type Phase =
   | { kind: "idle" }
   | { kind: "thinking"; steps: string[] }
   | { kind: "question"; question: string; niche: string | null; steps: string[] }
+  | {
+      kind: "confirm";
+      channel: string;
+      platform: "youtube" | "instagram";
+      steps: string[];
+    }
   | {
       kind: "candidates";
       niche: string;
@@ -82,10 +94,14 @@ export function VoiceResearch({
         (entry: { detail: string }) => entry.detail,
       );
 
-      // A named channel goes straight through — they already did the hard part.
+      // A named channel still waits for one tap — see the note at the top.
       if (data.kind === "channel") {
-        setPhase({ kind: "idle" });
-        onResearch(data.channel, data.platform);
+        setPhase({
+          kind: "confirm",
+          channel: data.channel,
+          platform: data.platform,
+          steps,
+        });
         return;
       }
 
@@ -202,6 +218,44 @@ export function VoiceResearch({
                 {option === "youtube" ? "YouTube" : "Instagram"}
               </Button>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* ----------------------------------------------- one named channel */}
+      {phase.kind === "confirm" && (
+        <div className="border-border/50 border-t pt-4">
+          <p className="text-muted-foreground text-sm">
+            Heard{" "}
+            <span className="text-foreground font-mono">
+              {spokenTargetLabel(phase.channel, phase.platform)}
+            </span>{" "}
+            on {phase.platform === "instagram" ? "Instagram" : "YouTube"}. Not
+            right? Say it again.
+          </p>
+
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                const { channel, platform } = phase;
+                setPhase({ kind: "idle" });
+                onResearch(channel, platform);
+              }}
+              className="bg-brand-gradient h-9 text-white"
+            >
+              Research {spokenTargetLabel(phase.channel, phase.platform)}
+              <span className="text-white/75">· uses 1 run</span>
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              className="h-9"
+              onClick={() => setPhase({ kind: "idle" })}
+            >
+              Cancel
+            </Button>
           </div>
         </div>
       )}

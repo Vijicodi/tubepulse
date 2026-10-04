@@ -3,7 +3,16 @@ import { z } from "zod";
 import { getQuota, spendRefill } from "@/lib/billing/store";
 import { canUseInstagram, depthFor } from "@/lib/billing/quota";
 import { createServerClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { refuseIfOverReserved } from "@/lib/billing/reserve";
 import { startChannelScrape, startInstagramScrape } from "@/lib/apify/client";
+import { storeYoutubeScrape } from "@/lib/apify/ingest";
+import {
+  readChannelViaApi,
+  YoutubeApiUnavailable,
+  YoutubeChannelNotFound,
+} from "@/lib/youtube/data-api";
+import { serverEnv } from "@/lib/env";
 import { isInvalidTargetError, isPlatform, parseTarget } from "@/lib/platform/parse";
 
 /**
@@ -100,25 +109,45 @@ export async function POST(request: Request) {
     );
   }
 
-  // Upsert the channel so re-researching updates rather than duplicating.
-  const { data: channel, error: channelError } = await supabase
+  // YouTube @handles and Instagram usernames are case-insensitive, so
+  // @StandUpMaths and @standupmaths are one channel. Without folding case the
+  // same competitor was added — and scraped, and charged — twice. Channel ids
+  // (UC…) ARE case-sensitive and are left alone.
+  const handle =
+    parsed.platform === "instagram" || parsed.handle.startsWith("@")
+      ? parsed.handle.toLowerCase()
+      : parsed.handle;
+
+  // Re-researching reuses the existing row UNTOUCHED. The old upsert reset
+  // title, subscribers and last_scraped_at to null on every attempt, so a
+  // re-run that then failed left a known competitor reading "Last read Never".
+  // The ingest writes fresh values when the scrape actually succeeds.
+  // ilike, so rows saved before handles were lower-cased still match.
+  const { data: existingChannel } = await supabase
     .from("channels")
-    .upsert(
-      {
-        owner_id: user.id,
-        project_id: project.id,
-        platform: parsed.platform,
-        handle: parsed.handle,
-        channel_url: parsed.url,
-        title: null,
-        subscriber_count: null,
-        thumbnail_url: null,
-        last_scraped_at: null,
-      },
-      { onConflict: "project_id,handle" },
-    )
     .select()
-    .single();
+    .eq("project_id", project.id)
+    .ilike("handle", handle.replace(/[\\%_]/g, (char) => `\\${char}`))
+    .limit(1)
+    .maybeSingle();
+
+  const { data: channel, error: channelError } = existingChannel
+    ? { data: existingChannel, error: null }
+    : await supabase
+        .from("channels")
+        .insert({
+          owner_id: user.id,
+          project_id: project.id,
+          platform: parsed.platform,
+          handle,
+          channel_url: parsed.url,
+          title: null,
+          subscriber_count: null,
+          thumbnail_url: null,
+          last_scraped_at: null,
+        })
+        .select()
+        .single();
 
   if (channelError || !channel) {
     return NextResponse.json(
@@ -129,7 +158,7 @@ export async function POST(request: Request) {
 
   // The job row exists BEFORE the scrape starts, so the UI has something to
   // watch even if starting the actor fails.
-  const { data: job, error: jobError } = await supabase
+  const { data: job, error: jobError } = await createAdminClient()
     .from("jobs")
     .insert({
       owner_id: user.id,
@@ -150,11 +179,55 @@ export async function POST(request: Request) {
     );
   }
 
+  // Two requests at the same instant both pass the check above. Re-read the
+  // allowance with this job reserved; the loser is withdrawn unbilled.
+  const raced = await refuseIfOverReserved(supabase, user.id, job.id);
+  if (raced) return raced;
+
   try {
     // The other half of what Pro buys: a deeper read of every account. The
     // Instagram figure is lower on purpose — its data costs several times more
     // per item. See the sums in lib/billing/plans.ts.
     const maxResults = depthFor(parsed.platform, quota.planKey);
+
+    // YOUTUBE: YouTube's own Data API first — free, and done in seconds, so
+    // the run finishes inside this request. Apify (paid, async) is only the
+    // fallback for when the API cannot answer: no key, quota spent, or a
+    // legacy /c/ name it cannot resolve.
+    const apiKey = serverEnv().YOUTUBE_API_KEY;
+    if (parsed.platform === "youtube" && apiKey) {
+      try {
+        const scrape = await readChannelViaApi({
+          handle: parsed.handle,
+          channelUrl: parsed.url,
+          maxResults,
+          apiKey,
+        });
+        await storeYoutubeScrape(createAdminClient(), job.id, channel.id, scrape, "youtube_api");
+
+        if (quota.mustSpendRefill) await spendRefill(user.id, job.id);
+        return NextResponse.json(
+          {
+            jobId: job.id,
+            channelId: channel.id,
+            handle: parsed.handle,
+            platform: parsed.platform,
+            done: true,
+          },
+          { status: 202 },
+        );
+      } catch (error) {
+        if (error instanceof YoutubeChannelNotFound) {
+          await createAdminClient()
+            .from("jobs")
+            .update({ status: "failed", error: error.message })
+            .eq("id", job.id);
+          return NextResponse.json({ error: error.message, jobId: job.id }, { status: 404 });
+        }
+        if (!(error instanceof YoutubeApiUnavailable)) throw error;
+        console.warn("[research] YouTube API unavailable, falling back to Apify:", error.message);
+      }
+    }
 
     const run =
       parsed.platform === "instagram"
@@ -169,13 +242,13 @@ export async function POST(request: Request) {
             maxResults,
           });
 
-    await supabase
+    await createAdminClient()
       .from("jobs")
       .update({ status: "running", external_run_id: run.runId })
       .eq("id", job.id);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Could not start the scrape.";
-    await supabase.from("jobs").update({ status: "failed", error: message }).eq("id", job.id);
+    await createAdminClient().from("jobs").update({ status: "failed", error: message }).eq("id", job.id);
 
     return NextResponse.json({ error: message, jobId: job.id }, { status: 502 });
   }

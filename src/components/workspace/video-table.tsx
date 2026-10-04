@@ -9,6 +9,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { VideoRow } from "@/lib/supabase/types";
+import { formatDate, formatNumber } from "@/lib/format";
 
 /**
  * Videos ranked by outlier score.
@@ -16,6 +17,11 @@ import type { VideoRow } from "@/lib/supabase/types";
  * The score is encoded as a coloured band as well as a number, because this
  * table is scanned rather than read — a breakout should be visible without
  * parsing a single digit.
+ *
+ * ON A PHONE the number columns fold under the title. At 390px only the title
+ * column fit, so the score — the reason this table exists — sat behind a
+ * sideways scroll nobody discovers. Below `sm` each row carries its own score,
+ * reach and date on a second line instead.
  */
 export function VideoTable({
   videos,
@@ -29,12 +35,14 @@ export function VideoTable({
       <Table>
         <TableHeader>
           <TableRow className="hover:bg-transparent">
-            <TableHead className="w-[42%] min-w-[13rem]">Video</TableHead>
-            {channelNames && <TableHead className="min-w-[120px]">Channel</TableHead>}
-            <TableHead className="text-right">Reach</TableHead>
-            <TableHead className="text-right">Score</TableHead>
+            <TableHead className="sm:w-[42%] sm:min-w-[13rem]">Video</TableHead>
+            {channelNames && (
+              <TableHead className="hidden min-w-[120px] sm:table-cell">Channel</TableHead>
+            )}
+            <TableHead className="hidden text-right sm:table-cell">Reach</TableHead>
+            <TableHead className="hidden text-right sm:table-cell">Score</TableHead>
             <TableHead className="hidden text-right xl:table-cell">Per day</TableHead>
-            <TableHead className="text-right">Published</TableHead>
+            <TableHead className="hidden text-right sm:table-cell">Published</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -43,7 +51,7 @@ export function VideoTable({
               {/* min-w-0 on BOTH the flex row and the clamped span. Without it
                   the title refuses to shrink and spills into the Views column —
                   which is the overlap that got reported. */}
-              <TableCell className="min-w-0 align-top">
+              <TableCell className="min-w-0 align-top max-sm:whitespace-normal">
                 <a
                   href={video.url}
                   target="_blank"
@@ -54,31 +62,46 @@ export function VideoTable({
                   <span className="line-clamp-2 min-w-0 break-words">{video.title}</span>
                   <ExternalLink className="mt-1 size-3 shrink-0 opacity-50" aria-hidden />
                 </a>
+
+                {/* The phone row: the same numbers as the hidden columns. */}
+                <div className="text-muted-foreground mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs sm:hidden">
+                  <ScoreBadge score={video.outlier_score} />
+                  <span className="text-foreground font-mono tabular-nums">
+                    <Reach video={video} />
+                  </span>
+                  {video.velocity !== null && (
+                    <span className="font-mono tabular-nums">
+                      {formatNumber(Math.round(Number(video.velocity)))}/day
+                    </span>
+                  )}
+                  <span className="font-mono">{formatDate(video.published_at)}</span>
+                  {channelNames && (
+                    <span className="max-w-full truncate">
+                      {channelNames[video.channel_id] ?? "—"}
+                    </span>
+                  )}
+                </div>
               </TableCell>
 
               {channelNames && (
-                <TableCell className="text-muted-foreground max-w-[9rem] truncate align-top text-sm">
+                <TableCell className="text-muted-foreground hidden max-w-[9rem] truncate align-top text-sm sm:table-cell">
                   {channelNames[video.channel_id] ?? "—"}
                 </TableCell>
               )}
 
-              <TableCell className="text-right align-top font-mono tabular-nums whitespace-nowrap">
+              <TableCell className="hidden text-right align-top font-mono tabular-nums whitespace-nowrap sm:table-cell">
                 <Reach video={video} />
               </TableCell>
-              <TableCell className="text-right align-top">
+              <TableCell className="hidden text-right align-top sm:table-cell">
                 <ScoreBadge score={video.outlier_score} />
               </TableCell>
               <TableCell className="text-muted-foreground hidden text-right align-top font-mono tabular-nums whitespace-nowrap xl:table-cell">
                 {video.velocity === null
                   ? "—"
-                  : Math.round(Number(video.velocity)).toLocaleString()}
+                  : formatNumber(Math.round(Number(video.velocity)))}
               </TableCell>
-              <TableCell className="text-muted-foreground text-right align-top font-mono text-xs whitespace-nowrap">
-                {new Date(video.published_at).toLocaleDateString(undefined, {
-                  year: "2-digit",
-                  month: "short",
-                  day: "numeric",
-                })}
+              <TableCell className="text-muted-foreground hidden text-right align-top font-mono text-xs whitespace-nowrap sm:table-cell">
+                {formatDate(video.published_at)}
               </TableCell>
             </TableRow>
           ))}
@@ -104,7 +127,7 @@ function Reach({ video }: { video: VideoRow }) {
       <span className="text-muted-foreground">—</span>
     ) : (
       <>
-        {Number(video.like_count).toLocaleString()}
+        {formatNumber(Number(video.like_count))}
         <span className="text-muted-foreground ml-1 text-[0.65rem]">likes</span>
       </>
     );
@@ -116,7 +139,7 @@ function Reach({ video }: { video: VideoRow }) {
 
   return (
     <>
-      {Number(video.view_count).toLocaleString()}
+      {formatNumber(Number(video.view_count))}
       <span className="text-muted-foreground ml-1 text-[0.65rem]">
         {video.kind === "reel" ? "plays" : "views"}
       </span>

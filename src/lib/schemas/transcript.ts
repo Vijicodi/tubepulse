@@ -238,3 +238,42 @@ export function idFromUrl(url: string | null | undefined): string | null {
     return null;
   }
 }
+
+const YOUTUBE_HOST = /^(www\.|m\.|music\.)?youtube\.com$/i;
+const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
+
+/**
+ * A customer's pasted video link, strictly.
+ *
+ * Unlike `idFromUrl` (which reads the actor's own output and must stay
+ * lenient), this guards a PAID run: only a real YouTube video passes. Accepts
+ * links without https://, Shorts, live, embed and youtu.be, and returns one
+ * canonical watch URL so the actor always sees the same shape.
+ */
+export function parseYoutubeVideoInput(
+  input: string,
+): { videoId: string; url: string } | null {
+  const trimmed = input.trim();
+  if (trimmed === "") return null;
+
+  let url: URL;
+  try {
+    url = new URL(/^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`);
+  } catch {
+    return null;
+  }
+
+  const segments = url.pathname.split("/").filter(Boolean);
+  let id: string | null = null;
+
+  if (/^youtu\.be$/i.test(url.hostname)) {
+    id = segments[0] ?? null;
+  } else if (YOUTUBE_HOST.test(url.hostname)) {
+    id =
+      url.searchParams.get("v") ??
+      (["shorts", "live", "embed"].includes(segments[0] ?? "") ? (segments[1] ?? null) : null);
+  }
+
+  if (!id || !VIDEO_ID.test(id)) return null;
+  return { videoId: id, url: `https://www.youtube.com/watch?v=${id}` };
+}

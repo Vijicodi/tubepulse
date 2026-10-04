@@ -67,7 +67,9 @@ export async function generateIdeas(
   }
 
   const env = serverEnv();
-  const client = new OpenAI({ apiKey: env.OPENAI_API_KEY });
+  // Bounded, so the route's 180s ceiling never kills a request mid-flight and
+  // strands its job as "running". No retries: a retry would double the wait.
+  const client = new OpenAI({ apiKey: env.OPENAI_API_KEY, timeout: 120_000, maxRetries: 0 });
 
   const completion = await client.chat.completions.create({
     model: modelFor(tier),

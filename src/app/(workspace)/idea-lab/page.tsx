@@ -64,6 +64,23 @@ export default async function IdeaLabPage() {
   const allIdeas = ideas ?? [];
   const evidenceIndex = indexByVideoId(videos ?? []);
 
+  // Deleting an idea cascades its calendar slots, so the confirm has to know
+  // how many there are to say so. One query for the page, not one per card.
+  const { data: slotRows } = allIdeas.length
+    ? await supabase
+        .from("calendar_slots")
+        .select("idea_id")
+        .in(
+          "idea_id",
+          allIdeas.map((idea) => idea.id),
+        )
+    : { data: [] as { idea_id: string }[] };
+
+  const scheduled = new Map<string, number>();
+  for (const row of slotRows ?? []) {
+    scheduled.set(row.idea_id, (scheduled.get(row.idea_id) ?? 0) + 1);
+  }
+
   // One group per channel, in the same shape as Outliers: an idea is drawn from
   // one channel's evidence, so merging them into a single ranked list would
   // invite a comparison the confidence number does not support.
@@ -171,12 +188,13 @@ export default async function IdeaLabPage() {
                   breakout videos and proposes concepts from them.
                 </EmptyState>
               ) : (
-                <div className="grid gap-3">
+                <div className="grid grid-cols-1 gap-3">
                   {group.ideas.map((idea) => (
                     <IdeaCard
                       key={idea.id}
                       idea={idea}
                       evidence={resolveEvidence(idea.evidence_video_ids, evidenceIndex)}
+                      deletable={{ scheduled: scheduled.get(idea.id) ?? 0 }}
                     />
                   ))}
                 </div>

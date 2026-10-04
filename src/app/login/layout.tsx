@@ -43,7 +43,11 @@ export default function LoginLayout({ children }: { children: React.ReactNode })
       </section>
 
       {/* Form side */}
-      <section className="bg-background flex items-center justify-center px-6 py-12 lg:px-10">
+      <section
+        id="main"
+        tabIndex={-1}
+        className="bg-background flex items-center justify-center px-6 py-12 outline-none lg:px-10"
+      >
         {children}
       </section>
     </div>

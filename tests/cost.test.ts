@@ -43,11 +43,18 @@ describe("what a run costs", () => {
     expect(cost.totalCents).toBeCloseTo(summed, 10);
   });
 
-  it("prices Instagram far above YouTube, per item", () => {
-    // Measured at four to six times the rate. This is the reason postsPerRun
-    // is smaller than videosPerRun on every tier — the depth moves, not the
-    // price.
-    expect(RATES.apifyPerPost).toBeGreaterThan(RATES.apifyPerVideo * 4);
+  it("uses the MEASURED Apify rates (2026-10-04 live runs)", () => {
+    // 50 videos billed $0.20 and 40 posts $0.108 on real runs. The old table
+    // assumed YouTube at 0.0512c a video — 7.8x too low.
+    expect(RATES.apifyPerVideo).toBeCloseTo(0.4);
+    expect(RATES.apifyPerPost).toBeCloseTo(0.27);
+  });
+
+  it("charges nothing for videos read through YouTube's free Data API", () => {
+    const viaApi = costOf({ videosScraped: 200, source: "youtube_api" });
+    expect(viaApi.lines.find((line) => line.provider === "apify")).toBeUndefined();
+    const viaApify = costOf({ videosScraped: 50, source: "apify" });
+    expect(viaApify.lines.find((line) => line.provider === "apify")?.cents).toBeCloseTo(20);
   });
 
   it("prices output tokens above input tokens on both tiers", () => {

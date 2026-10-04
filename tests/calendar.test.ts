@@ -84,11 +84,12 @@ describe("date keys", () => {
     expect(dateKey(2026, 12, 25)).toBe("2026-12-25");
   });
 
-  it("reads today from LOCAL parts, not UTC", () => {
-    // toISOString() would give the UTC date, marking the wrong cell as today
-    // for most of the world for part of every day.
-    const localEvening = new Date(2026, 8, 15, 23, 30);
-    expect(todayKey(localEvening)).toBe("2026-09-15");
+  it("reads today in IST, not the server's UTC", () => {
+    // 20:00 UTC on the 15th is 01:30 IST on the 16th — the old local-parts
+    // version, running on a UTC server, said the 15th.
+    expect(todayKey(new Date("2026-09-15T20:00:00Z"))).toBe("2026-09-16");
+    // 18:00 UTC is 23:30 IST — still the 15th.
+    expect(todayKey(new Date("2026-09-15T18:00:00Z"))).toBe("2026-09-15");
   });
 
   it("accepts real dates and rejects impossible ones", () => {

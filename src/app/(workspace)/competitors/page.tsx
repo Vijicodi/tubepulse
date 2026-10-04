@@ -2,10 +2,14 @@ import Link from "next/link";
 import { EmptyState, WorkspacePanel } from "@/components/workspace/panel";
 import { CreateProjectForm } from "@/components/workspace/create-project-form";
 import { ResearchForm } from "@/components/workspace/research-form";
+import { ConfirmDelete } from "@/components/workspace/confirm-delete";
+import { deleteChannel } from "@/lib/channels/actions";
+import { atHandle } from "@/lib/platform/display";
 import { getCurrentProject } from "@/lib/projects/current";
 import { PLANS } from "@/lib/billing/plans";
 import { getBillingState } from "@/lib/billing/store";
 import { createServerClient } from "@/lib/supabase/server";
+import { formatDay, formatNumber } from "@/lib/format";
 
 export const metadata = { title: "Competitors — TubePulse" };
 
@@ -35,7 +39,7 @@ export default async function CompetitorsPage() {
     // Resume the card if a scrape was left running when the page was closed.
     supabase
       .from("jobs")
-      .select("id")
+      .select("id, channel_id")
       .eq("project_id", project.id)
       .eq("kind", "channel_scrape")
       .in("status", ["queued", "running"])
@@ -70,15 +74,22 @@ export default async function CompetitorsPage() {
         instagramEnabled={PLANS[billing.planKey].features.instagram}
       />
 
+      {/*
+        A run in flight with no row to show yet (the page rendered in the gap
+        before the channel was written) must not read "No competitors yet"
+        under its own progress card. Once the row exists it renders below as a
+        pending card marked "Reading now".
+      */}
       {!channels || channels.length === 0 ? (
         <EmptyState>
-          No competitors yet. Paste a YouTube channel or an Instagram profile
-          above and it will appear here with its real numbers.
+          {runningJob
+            ? "Reading the account now. It appears here the moment its first numbers land."
+            : "No competitors yet. Paste a YouTube channel or an Instagram profile above and it will appear here with its real numbers."}
         </EmptyState>
       ) : (
-        <ul className="grid gap-3 sm:grid-cols-2">
+        <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {channels.map((channel) => (
-            <li key={channel.id} className="surface-raised rounded-xl p-5">
+            <li key={channel.id} className="surface-raised relative min-w-0 rounded-xl p-5">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <h3 className="truncate font-semibold tracking-tight">
@@ -98,12 +109,22 @@ export default async function CompetitorsPage() {
                     <span className="truncate">{channel.handle}</span>
                   </p>
                 </div>
-                <Link
-                  href={`/channels/${channel.id}`}
-                  className="text-muted-foreground hover:text-foreground shrink-0 text-xs underline underline-offset-2"
-                >
-                  Profile
-                </Link>
+                <div className="flex shrink-0 items-center gap-1">
+                  <Link
+                    href={`/channels/${channel.id}`}
+                    className="text-muted-foreground hover:text-foreground text-xs underline underline-offset-2"
+                  >
+                    Profile
+                  </Link>
+                  <ConfirmDelete
+                    action={deleteChannel}
+                    fields={{ channelId: channel.id }}
+                    label={`Remove ${atHandle(channel.handle)}`}
+                    question={`Remove ${atHandle(channel.handle)}?`}
+                    detail="Its videos and ideas go too. Runs you already used stay used."
+                    confirmLabel="Remove"
+                  />
+                </div>
               </div>
 
               <dl className="mt-4 flex gap-6 text-sm">
@@ -113,7 +134,7 @@ export default async function CompetitorsPage() {
                       {channel.platform === "instagram" ? "Followers" : "Subscribers"}
                     </dt>
                     <dd className="font-mono tabular-nums">
-                      {Number(channel.subscriber_count).toLocaleString("en-IN")}
+                      {formatNumber(Number(channel.subscriber_count))}
                     </dd>
                   </div>
                 ) : (
@@ -124,7 +145,7 @@ export default async function CompetitorsPage() {
                       {channel.platform === "instagram" ? "Posts read" : "Videos read"}
                     </dt>
                     <dd className="font-mono tabular-nums">
-                      {storedCount.get(channel.id) ?? 0}
+                      {formatNumber(storedCount.get(channel.id) ?? 0)}
                     </dd>
                   </div>
                 )}
@@ -133,12 +154,21 @@ export default async function CompetitorsPage() {
                     Last read
                   </dt>
                   <dd className="font-mono text-xs">
-                    {channel.last_scraped_at
-                      ? new Date(channel.last_scraped_at).toLocaleDateString(undefined, {
-                          month: "short",
-                          day: "numeric",
-                        })
-                      : "Never"}
+                    {runningJob?.channel_id === channel.id ? (
+                      // The run started with this row; its numbers are on the
+                      // way. "Never" read as though nothing was happening.
+                      <span className="inline-flex items-center gap-1.5 text-[var(--brand-2)]">
+                        <span
+                          className="size-1.5 animate-pulse rounded-full bg-[var(--brand-2)]"
+                          aria-hidden
+                        />
+                        Reading now
+                      </span>
+                    ) : channel.last_scraped_at ? (
+                      formatDay(channel.last_scraped_at)
+                    ) : (
+                      "Never"
+                    )}
                   </dd>
                 </div>
               </dl>

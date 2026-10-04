@@ -123,7 +123,7 @@ export default async function HooksPage() {
         )}
       </p>
 
-      <div className="grid gap-3">
+      <div className="grid grid-cols-1 gap-3">
         {library.hooks.map((hook) => (
           <HookCard key={hook.label} hook={hook} />
         ))}

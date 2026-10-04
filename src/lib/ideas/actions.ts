@@ -47,3 +47,42 @@ export async function toggleIdeaSaved(formData: FormData): Promise<void> {
   const saved = String(formData.get("saved") ?? "") === "true";
   await setSaved(ideaId, saved);
 }
+
+export type DeleteIdeaState = { error: string | null };
+
+/**
+ * Delete an idea for good.
+ *
+ * Its calendar slots go with it (ON DELETE CASCADE in 0014) — a slot is a plan
+ * to make THIS idea, and a plan for something deleted is not worth keeping.
+ * The confirm says so before the press. The run that generated it stays
+ * counted; jobs are not touched here.
+ */
+export async function deleteIdea(
+  _prev: DeleteIdeaState,
+  formData: FormData,
+): Promise<DeleteIdeaState> {
+  const user = await getUser();
+  if (!user) return { error: "Sign in to delete an idea." };
+
+  const parsed = idSchema.safeParse(formData.get("ideaId"));
+  if (!parsed.success) return { error: "That is not an idea." };
+
+  const supabase = await createServerClient();
+
+  const { data: deleted, error } = await supabase
+    .from("ideas")
+    .delete()
+    .eq("id", parsed.data)
+    .select("id");
+
+  if (error) return { error: `Could not delete the idea: ${error.message}` };
+  if (!deleted || deleted.length === 0) return { error: "That idea could not be found." };
+
+  revalidatePath("/idea-lab");
+  revalidatePath("/saved-ideas");
+  revalidatePath("/calendar");
+  revalidatePath("/project");
+  revalidatePath("/channels/[id]", "page");
+  return { error: null };
+}

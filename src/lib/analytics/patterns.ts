@@ -1,4 +1,5 @@
 import type { VideoRow } from "@/lib/supabase/types";
+import { istWeekday } from "@/lib/format";
 
 /**
  * Patterns across a channel's catalogue, computed from rows already stored.
@@ -107,18 +108,20 @@ const DAYS = [
 /**
  * Which day of the week this channel's best videos went out on.
  *
- * UTC throughout, and that is a real limitation rather than an oversight:
- * `published_at` is stored in UTC and the audience's timezone is unknown, so
- * "Tuesday" means Tuesday UTC. For a channel posting near midnight in its own
- * timezone that can be the wrong day. Said plainly in the UI rather than
- * papered over.
+ * Bucketed in India Standard Time. `published_at` is stored in UTC, and this
+ * used to read it in UTC — so anything published 00:00-05:30 IST (18:30-24:00
+ * UTC) landed on the previous day for an India-only audience. The creator's
+ * own timezone is still unknown; IST is the one the reader plans their week in,
+ * and the UI says so.
  */
 export function byDayOfWeek(videos: VideoRow[]): Pattern {
   const usable = scorable(videos);
   const groups = new Map<string, VideoRow[]>();
 
   for (const video of usable) {
-    const day = DAYS[new Date(video.published_at).getUTCDay()];
+    const weekday = istWeekday(video.published_at);
+    if (weekday < 0) continue;
+    const day = DAYS[weekday];
     const existing = groups.get(day);
     if (existing) existing.push(video);
     else groups.set(day, [video]);

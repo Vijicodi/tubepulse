@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LifeBuoy, Plus } from "lucide-react";
+import { LifeBuoy, Lock, Plus } from "lucide-react";
 import { LogoLockup } from "@/components/brand/logo";
 import { NAV_ITEMS } from "@/lib/nav";
 import { SUPPORT_EMAIL } from "@/lib/support";
 import { cn } from "@/lib/utils";
+import type { ProjectCap } from "@/lib/projects/limit";
 
 /**
  * The workspace sidebar.
@@ -22,8 +23,14 @@ import { cn } from "@/lib/utils";
 export function Sidebar({
   onNavigate,
   planCard,
+  projectCap,
 }: {
   onNavigate?: () => void;
+  /**
+   * Present only when the plan cannot open another project. The button then
+   * says so and goes to billing, instead of leading to a form that refuses.
+   */
+  projectCap?: ProjectCap | null;
   /**
    * The plan-and-usage card, rendered by the layout as a SERVER component and
    * passed through as a slot.
@@ -91,14 +98,31 @@ export function Sidebar({
 
       {planCard}
 
-      <Link
-        href="/projects/new"
-        onClick={onNavigate}
-        className="bg-muted/50 hover:bg-muted lift hover:border-border/80 flex items-center justify-center gap-2 rounded-lg border border-transparent px-3 py-2.5 text-sm font-medium hover:-translate-y-px"
-      >
-        <Plus className="size-4" aria-hidden />
-        New project
-      </Link>
+      {projectCap?.reached ? (
+        <Link
+          href="/billing"
+          onClick={onNavigate}
+          title={projectCap.message}
+          className="border-border/70 text-muted-foreground hover:text-foreground hover:border-border flex flex-col items-center gap-0.5 rounded-lg border border-dashed px-3 py-2 text-center transition-colors"
+        >
+          <span className="flex items-center gap-2 text-sm font-medium">
+            <Lock className="size-3.5" aria-hidden />
+            Project limit reached
+          </span>
+          <span className="text-[0.7rem]">
+            {projectCap.upgradeTo ? `More projects on ${projectCap.upgradeTo}` : "See your plan"}
+          </span>
+        </Link>
+      ) : (
+        <Link
+          href="/projects/new"
+          onClick={onNavigate}
+          className="bg-muted/50 hover:bg-muted lift hover:border-border/80 flex items-center justify-center gap-2 rounded-lg border border-transparent px-3 py-2.5 text-sm font-medium hover:-translate-y-px"
+        >
+          <Plus className="size-4" aria-hidden />
+          New project
+        </Link>
+      )}
 
       {/* Paying customers are the ones who most need a way to reach a human,
           and hunting for it on the marketing site is the wrong errand at the

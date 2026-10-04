@@ -1,8 +1,14 @@
 import { NextResponse } from "next/server";
 import { billingStateFrom } from "@/lib/billing/status";
-import { recordPaypalSubscription, recordSubscription } from "@/lib/billing/store";
+import {
+  clearPendingSwitch,
+  completeSwitch,
+  recordPaypalSubscription,
+  recordSubscription,
+} from "@/lib/billing/store";
+import { toSubscriptionStatus } from "@/lib/razorpay/schemas";
 import { toBillingCycle, toPaidPlanKey } from "@/lib/billing/plans";
-import { fetchSubscription } from "@/lib/razorpay/client";
+import { fetchSubscription, RazorpayError } from "@/lib/razorpay/client";
 import { getSubscription as getPaypalSubscription } from "@/lib/paypal/client";
 import { createServerClient } from "@/lib/supabase/server";
 
@@ -42,6 +48,35 @@ export async function POST() {
     .select("*")
     .eq("owner_id", user.id)
     .maybeSingle();
+
+  // A plan switch the customer just paid for in the popup. Completed here as
+  // well as by the webhook (whichever lands first; completeSwitch is
+  // idempotent), so the new plan shows the moment the popup closes.
+  if (row?.switch_subscription_id) {
+    try {
+      const pending = await fetchSubscription(row.switch_subscription_id);
+      const status = toSubscriptionStatus(pending.status);
+      if (status === "authenticated" || status === "active") {
+        const refundedPaise = await completeSwitch(user.id, pending);
+        const { data: switched } = await supabase
+          .from("subscriptions")
+          .select("*")
+          .eq("owner_id", user.id)
+          .maybeSingle();
+        return NextResponse.json({
+          state: billingStateFrom(switched ?? null),
+          synced: true,
+          switched: true,
+          refundedPaise,
+        });
+      }
+      if (status !== "created" && status !== "pending") {
+        await clearPendingSwitch(user.id, pending.id);
+      }
+    } catch (error) {
+      console.error("[billing sync] could not check the pending switch", error);
+    }
+  }
 
   // Nothing was ever started, so there is nothing to reconcile. Not an error —
   // the billing page calls this on load.
@@ -84,12 +119,23 @@ export async function POST() {
       const subscription = await fetchSubscription(row.razorpay_subscription_id);
       await recordSubscription(user.id, subscription);
     } catch (error) {
+      // A checkout that was opened and never paid can point at a subscription
+      // Razorpay no longer knows (e.g. one made on the previous merchant
+      // account). That is not an outage — say what it means and what to do.
+      // Provider wording ("Razorpay returned 404.") is for our logs only.
+      console.error("[billing sync]", error);
+      const stale =
+        error instanceof RazorpayError &&
+        (error.status === 400 || error.status === 404) &&
+        (row.status === "created" || row.status === "pending");
       return NextResponse.json(
         {
-          error: error instanceof Error ? error.message : "Could not reach Razorpay.",
+          error: stale
+            ? "Your last checkout was never completed, so there is nothing to refresh. Pick a plan to start again — nothing was charged."
+            : "We could not check with Razorpay just now. Your plan has not changed — try Refresh again in a minute.",
           state: billingStateFrom(row),
         },
-        { status: 502 },
+        { status: stale ? 409 : 502 },
       );
     }
   }

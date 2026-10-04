@@ -16,12 +16,15 @@ import type { Hook } from "@/lib/analytics/hooks";
  * the difference is the sample size printed next to it.
  */
 export function HookCard({ hook }: { hook: Hook }) {
+  // min-w-0 on the card: without it the `truncate` example rows report their
+  // full one-line width as the card's minimum, and the grid track grows to fit
+  // it instead of letting them ellipsise (67px off a phone screen).
   return (
     <article
       className={
         hook.isReliable
-          ? "border-border/60 bg-card/40 rounded-xl border p-4"
-          : "border-border/40 bg-card/20 rounded-xl border p-4"
+          ? "border-border/60 bg-card/40 min-w-0 rounded-xl border p-4 wrap-anywhere"
+          : "border-border/40 bg-card/20 min-w-0 rounded-xl border p-4 wrap-anywhere"
       }
     >
       <header className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">

@@ -1,5 +1,7 @@
 import { Landing } from "@/components/landing/landing";
 import { LiquidCursor } from "@/components/landing/liquid-cursor";
+import { cookies } from "next/headers";
+import { INTRO_SEEN_COOKIE } from "@/components/landing/intro-cookie";
 import { Preloader } from "@/components/landing/preloader";
 import { ScrollChoreography } from "@/components/landing/scroll-choreography";
 import { SmoothScroll } from "@/components/landing/smooth-scroll";
@@ -22,7 +24,7 @@ import { getUser } from "@/lib/supabase/server";
  * The four imports below are client islands, each doing one job, so a failure
  * in any one of them leaves a readable page rather than a blank screen:
  *
- *   Preloader          the intro curtain, driven by real load progress
+ *   Preloader          the intro curtain, first visit only, ~1s at most
  *   SmoothScroll       Lenis, bridged to GSAP's ticker
  *   ScrollChoreography every scroll-triggered animation, read from data attrs
  *   LiquidCursor       the glass cursor, pointer-fine devices only
@@ -33,9 +35,14 @@ export default async function RootPage() {
   // one page that works before any setup is done.
   const user = isSupabaseConfigured ? await getUser() : null;
 
+  // Decided on the server, not in an effect: a curtain that is rendered and
+  // then removed after hydration still covers the hero until the JS runs,
+  // which is exactly what a returning visitor should never see.
+  const seenIntro = (await cookies()).get(INTRO_SEEN_COOKIE)?.value === "1";
+
   return (
     <>
-      <Preloader />
+      {!seenIntro && <Preloader />}
       <SmoothScroll />
       <ScrollChoreography />
       <LiquidCursor />

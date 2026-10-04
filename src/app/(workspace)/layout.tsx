@@ -4,6 +4,7 @@ import { WorkspaceShell } from "@/components/workspace/shell";
 import { getBillingState, getQuota } from "@/lib/billing/store";
 import { createServerClient, getUser } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/public-env";
+import { projectCap } from "@/lib/projects/limit";
 
 /**
  * Every workspace page renders inside this.
@@ -42,10 +43,15 @@ export default async function WorkspaceLayout({
   const eyebrow =
     (count ?? 0) === 0 ? "Set up your first project" : "Competitor research workspace";
 
+  // The sidebar's "New project" turns into an upgrade link at the cap. Fails
+  // open when billing could not be read: the action re-checks on submit.
+  const cap = billing ? projectCap(billing.planKey, count ?? 0) : null;
+
   return (
     <WorkspaceShell
       email={user.email ?? ""}
       eyebrow={eyebrow}
+      projectCap={cap?.reached ? cap : null}
       planCard={
         quota ? (
           <SidebarPlanCard

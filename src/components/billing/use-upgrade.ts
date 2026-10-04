@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { formatInr } from "@/lib/billing/plans";
 import type { BillingCycle, PaidPlanKey } from "@/lib/billing/plans";
 import { brandColour, loadRazorpay } from "./razorpay-checkout";
 
@@ -40,7 +41,7 @@ export function useUpgrade(onDone?: () => void) {
    * asks Razorpay's own API through /api/billing/sync instead — which is also
    * the only path that works when the webhook cannot reach us.
    */
-  async function confirm(planName: string) {
+  async function confirm(planName: string, switching = false) {
     /*
      * POLL UNTIL THE PLAN IS REALLY THERE. This used to fire one sync and
      * announce "You are on Pro" whatever came back. Razorpay often still says
@@ -54,11 +55,20 @@ export function useUpgrade(onDone?: () => void) {
         const response = await fetch("/api/billing/sync", { method: "POST" });
         const data = (await response.json().catch(() => ({}))) as {
           state?: { isPaid?: boolean };
+          switched?: boolean;
+          refundedPaise?: number;
         };
-        if (data.state?.isPaid) {
-          toast.success(`You are on ${planName}. Autopay is set up and renews by itself.`, {
-            id: loading,
-          });
+        // A switching customer is ALREADY paid, so isPaid proves nothing —
+        // wait for the server to say the switch itself went through.
+        if (switching ? data.switched : data.state?.isPaid) {
+          const refund =
+            switching && data.refundedPaise && data.refundedPaise > 0
+              ? ` ${formatInr(data.refundedPaise / 100)} for the unused days of your old plan is on its way back to you (5–7 working days).`
+              : "";
+          toast.success(
+            `You are on ${planName}. Autopay is set up and renews by itself.${refund}`,
+            { id: loading, duration: refund ? 12000 : undefined },
+          );
           onDone?.();
           router.push("/billing");
           router.refresh();
@@ -112,6 +122,7 @@ export function useUpgrade(onDone?: () => void) {
         error?: string;
         provider?: "razorpay" | "paypal";
         approveUrl?: string;
+        switching?: boolean;
       };
 
       /**
@@ -141,6 +152,9 @@ export function useUpgrade(onDone?: () => void) {
         key: data.keyId,
         subscription_id: data.subscriptionId,
         name: "TubePulse",
+        // Without it Razorpay shows a grey "T" placeholder in the popup —
+        // the moment a customer is deciding whether to trust us with money.
+        image: `${window.location.origin}/brand/tubepulse-icon.png`,
         description:
           data.cycle === "yearly"
             ? `${data.planName ?? "TubePulse"} — billed yearly, cancel any time`
@@ -148,7 +162,7 @@ export function useUpgrade(onDone?: () => void) {
         prefill: { email: data.email ?? "" },
         theme: { color: brandColour() },
         handler: () => {
-          void confirm(data.planName ?? "your new plan");
+          void confirm(data.planName ?? "your new plan", Boolean(data.switching));
         },
         modal: {
           // Closing the popup is not a failure. The subscription stays in

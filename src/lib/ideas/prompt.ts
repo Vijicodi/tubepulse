@@ -22,6 +22,11 @@ import type { ScoredVideo } from "./score";
  */
 
 export const MAX_IDEAS = 8;
+/**
+ * The site promises "up to 8 ideas"; "up to" alone let the model stop at 2 or 3
+ * (seen on production 2026-10-04). Asking for a floor keeps a run worth its price.
+ */
+export const MIN_IDEAS = 5;
 
 /** Alternative titles per idea, on the tiers that get them. */
 export const MAX_TITLE_VARIANTS = 4;
@@ -153,7 +158,7 @@ ${videoLines}
 WEB CONTEXT (what the wider internet is discussing around this niche):
 ${contextLines}
 
-Produce up to ${MAX_IDEAS} video ideas.
+Produce between ${MIN_IDEAS} and ${MAX_IDEAS} video ideas. Go below ${MIN_IDEAS} only if the breakout videos genuinely cannot support that many distinct ideas.
 
 Rules:
 - Every idea must cite at least one videoId from the list above in evidenceVideoIds. Use the exact ids shown in square brackets.

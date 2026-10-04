@@ -5,6 +5,7 @@ import { headers } from "next/headers";
 import { createServerClient } from "@/lib/supabase/server";
 import { OTP_LENGTH } from "./otp";
 import { friendly } from "./messages";
+import { safeNext } from "./safe-next";
 
 /**
  * Auth server actions.
@@ -94,7 +95,9 @@ export async function signInWithPassword(
     // Supabase returns the same message for "wrong password" and "not
     // confirmed" in some configurations. Point unconfirmed users at the code.
     if (/confirm/i.test(error.message)) {
-      redirect(`/login/verify?email=${encodeURIComponent(email)}`);
+      redirect(
+        `/login/verify?email=${encodeURIComponent(email)}&next=${encodeURIComponent(safeNext(next))}`,
+      );
     }
     return { error: friendly(error.message) };
   }
@@ -227,7 +230,3 @@ export async function signOut() {
   redirect("/login");
 }
 
-/** Only ever redirect within this app — never to a URL an attacker supplied. */
-function safeNext(next: string): string {
-  return next.startsWith("/") && !next.startsWith("//") ? next : "/projects";
-}

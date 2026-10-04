@@ -54,6 +54,7 @@ function row(overrides: Partial<SubscriptionRow> = {}): SubscriptionRow {
     promo_cycles_total: null,
     promo_cycles_remaining: null,
     promo_renews_at_cents: null,
+    switch_subscription_id: null,
     cancelled_at: null,
     created_at: LAST_MONTH,
     updated_at: LAST_MONTH,
@@ -511,7 +512,7 @@ describe("the discount countdown", () => {
     expect(state.promo).not.toBeNull();
     expect(state.promo?.cyclesRemaining).toBe(2);
     expect(state.promo?.notice).toContain("2 months");
-    expect(state.promo?.notice).toContain("$49");
+    expect(state.promo?.notice).toContain("₹49");
   });
 
   it("says '1 month', not '1 months', on the last discounted cycle", () => {
@@ -590,5 +591,41 @@ describe("the discount countdown", () => {
       NOW,
     );
     expect(state.promo?.notice).toContain("1 year");
+  });
+});
+
+describe("an 'active' row whose paid period is long over (found 2026-10-04)", () => {
+  // If the halted/cancelled webhook is ever lost, the row stays 'active'
+  // forever. Without a date check that was paid access forever, for free.
+  const DAY = 24 * 60 * 60 * 1000;
+  const ago = (days: number) => new Date(NOW.getTime() - days * DAY).toISOString();
+
+  it("still grants access inside the renewal grace window", () => {
+    expect(hasPaidAccess(row({ status: "active", current_period_end: ago(1) }), NOW)).toBe(true);
+  });
+
+  it("stops granting access once the grace window has passed", () => {
+    expect(hasPaidAccess(row({ status: "active", current_period_end: ago(4) }), NOW)).toBe(false);
+    expect(hasPaidAccess(row({ status: "active", current_period_end: LAST_MONTH }), NOW)).toBe(false);
+  });
+
+  it("keeps access when the period end is not known yet", () => {
+    expect(hasPaidAccess(row({ status: "authenticated", current_period_end: null }), NOW)).toBe(true);
+  });
+});
+
+describe("promo notice money", () => {
+  it("is in rupees, never dollars", () => {
+    const state = billingStateFrom(
+      row({
+        promo_code: "LAUNCH20",
+        promo_cycles_total: 2,
+        promo_cycles_remaining: 1,
+        promo_renews_at_cents: 129_900,
+      }),
+      NOW,
+    );
+    expect(state.promo?.notice).toContain("₹1,299");
+    expect(state.promo?.notice).not.toContain("$");
   });
 });

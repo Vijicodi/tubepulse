@@ -41,10 +41,13 @@ const STATUS_STYLES: Record<string, string> = {
 
 export function RunCard({
   job,
+  subject,
   showCost,
   showTrail,
 }: {
   job: JobRow;
+  /** Which channel or video the run was for — "Channel research" alone said nothing. */
+  subject?: string | null;
   /** Studio and above. The per-run cost breakdown. */
   showCost: boolean;
   /** Max only. The full agent and tool-call trail. */
@@ -60,6 +63,9 @@ export function RunCard({
         <div className="min-w-0">
           <h3 className="font-semibold tracking-tight">
             {KIND_LABELS[job.kind] ?? job.kind}
+            {subject && (
+              <span className="text-muted-foreground font-normal"> · {subject}</span>
+            )}
           </h3>
           <p className="text-muted-foreground mt-1 text-xs">
             {/* Rendered on the server, which runs in UTC: without a zone a

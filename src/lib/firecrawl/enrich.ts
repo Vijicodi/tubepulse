@@ -23,6 +23,8 @@ export interface WebContext {
 const MAX_RESULTS = 5;
 const EXCERPT_CHARS = 1200;
 
+const ENRICH_TIMEOUT_MS = 20_000;
+
 export function createFirecrawlClient() {
   return new Firecrawl({ apiKey: serverEnv().FIRECRAWL_API_KEY });
 }
@@ -41,10 +43,17 @@ export async function gatherWebContext(
 
   try {
     const client = createFirecrawlClient();
-    const response = await client.search(query, {
-      limit: MAX_RESULTS,
-      scrapeOptions: { formats: ["markdown"] },
-    });
+    // Enrichment is a bonus, so it gets a short leash: the SDK would otherwise
+    // wait up to five minutes, long past the route's own deadline.
+    const response = await Promise.race([
+      client.search(query, {
+        limit: MAX_RESULTS,
+        scrapeOptions: { formats: ["markdown"] },
+      }),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Firecrawl timed out after 20s")), ENRICH_TIMEOUT_MS),
+      ),
+    ]);
 
     const results = Array.isArray(response) ? response : (response?.web ?? []);
 

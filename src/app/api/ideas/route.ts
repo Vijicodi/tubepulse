@@ -1,3 +1,4 @@
+import OpenAI from "openai";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getQuota, spendRefill } from "@/lib/billing/store";
@@ -7,6 +8,8 @@ import { gatherWebContext } from "@/lib/firecrawl/enrich";
 import { generateIdeas } from "@/lib/ideas/generate";
 import { selectOutliers } from "@/lib/ideas/score";
 import { createServerClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { refuseIfOverReserved } from "@/lib/billing/reserve";
 import type { Video } from "@/lib/schemas/youtube";
 
 /**
@@ -21,7 +24,12 @@ import type { Video } from "@/lib/schemas/youtube";
  * for — an OpenAI call anyone could repeat for free. The row is the charge.
  */
 
-export const maxDuration = 60;
+// Measured on production 2026-10-04: a mini-model generation of ~2,600 output
+// tokens took 43s, so a full eight-idea answer could pass 60s and be killed
+// mid-flight — leaving the job "running" and billed. Vercel Hobby with fluid
+// compute allows 300s. The outbound calls carry their own, shorter limits
+// (Firecrawl 20s, OpenAI 120s) so this ceiling is never the thing that fires.
+export const maxDuration = 180;
 
 const bodySchema = z.object({ channelId: z.uuid() });
 
@@ -106,7 +114,7 @@ export async function POST(request: Request) {
 
   // The row that makes this billable. Written only now — every early return
   // above refused the work, and refused work is not charged for.
-  const { data: job, error: jobError } = await supabase
+  const { data: job, error: jobError } = await createAdminClient()
     .from("jobs")
     .insert({
       owner_id: user.id,
@@ -127,9 +135,14 @@ export async function POST(request: Request) {
     );
   }
 
+  // Two requests at the same instant both pass the check above. Re-read the
+  // allowance with this job reserved; the loser is withdrawn unbilled.
+  const raced = await refuseIfOverReserved(supabase, user.id, job.id);
+  if (raced) return raced;
+
   /** Mark the job failed so it stops counting against the allowance. */
   const refund = async (message: string) => {
-    await supabase.from("jobs").update({ status: "failed", error: message }).eq("id", job.id);
+    await createAdminClient().from("jobs").update({ status: "failed", error: message }).eq("id", job.id);
   };
 
   // Recorded for EVERY run regardless of tier, and gated at read time. A trail
@@ -204,7 +217,7 @@ export async function POST(request: Request) {
     // Usage, not money. The cost is computed at read time from the rate table
     // in lib/billing/cost.ts, so a customer's breakdown never freezes against
     // rates that have since moved — see migration 0012.
-    await supabase
+    await createAdminClient()
       .from("jobs")
       .update({
         status: "succeeded",
@@ -229,8 +242,20 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ count: ideas.length, ideas });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Idea generation failed.";
-    await refund(message);
-    return NextResponse.json({ error: message }, { status: 502 });
+    const raw = error instanceof Error ? error.message : "Idea generation failed.";
+    await refund(raw);
+    // OpenAI's own wording ("You exceeded your current quota…", timeouts) is
+    // for us, not the customer. Log it; tell them what happened and that it
+    // cost them nothing.
+    console.error("[ideas] generation failed", raw);
+    const fromModel = error instanceof OpenAI.APIError || /timed? ?out|abort/i.test(raw);
+    return NextResponse.json(
+      {
+        error: fromModel
+          ? "The idea engine did not answer in time. Nothing was charged — try again in a minute."
+          : raw,
+      },
+      { status: 502 },
+    );
   }
 }

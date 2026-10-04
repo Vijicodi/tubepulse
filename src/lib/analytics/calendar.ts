@@ -76,14 +76,21 @@ export function dateKey(year: number, month: number, day: number): DateKey {
 }
 
 /**
- * Today, as a key, in the viewer's own timezone.
+ * Today, as a key, in India time.
  *
- * Uses the LOCAL parts rather than `toISOString()`, which would return the UTC
- * date and mark the wrong cell as today for most of the world for part of
- * every day.
+ * This renders on the server, and Vercel's servers run in UTC — so "local"
+ * parts meant UTC, and from midnight to 05:30 IST the calendar marked
+ * yesterday as today (found 2026-10-04). TubePulse sells in rupees to India,
+ * so the day is IST's day, the same one the daily run cap uses.
  */
 export function todayKey(now: Date = new Date()): DateKey {
-  return dateKey(now.getFullYear(), now.getMonth() + 1, now.getDate());
+  // en-CA formats as YYYY-MM-DD.
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(now) as DateKey;
 }
 
 /** How many days in a month. Month is 1-12. */

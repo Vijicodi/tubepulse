@@ -28,11 +28,14 @@ const initial: AuthResult = { error: null };
 export function AuthPanel({
   next,
   initialError,
+  initialMode = "login",
 }: {
   next: string;
   initialError?: string;
+  /** "Start free" links arrive with ?mode=signup and should open on that tab. */
+  initialMode?: "login" | "signup";
 }) {
-  const [mode, setMode] = useState<"login" | "signup">("login");
+  const [mode, setMode] = useState<"login" | "signup">(initialMode);
 
   const [loginState, loginAction] = useActionState(signInWithPassword, initial);
   const [signupState, signupAction] = useActionState(signUpWithPassword, initial);

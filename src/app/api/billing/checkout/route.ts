@@ -22,8 +22,8 @@ import {
 import { recordPaypalSubscription } from "@/lib/billing/store";
 import { checkPromo, recordRedemption } from "@/lib/billing/promo-store";
 import { billingStateFrom } from "@/lib/billing/status";
-import { recordSubscription } from "@/lib/billing/store";
-import { createSubscription, RazorpayError } from "@/lib/razorpay/client";
+import { recordPendingSwitch, recordSubscription } from "@/lib/billing/store";
+import { cancelSubscription, createSubscription, RazorpayError } from "@/lib/razorpay/client";
 import { assertModeMatchesEnvironment, serverEnv } from "@/lib/env";
 import { createServerClient } from "@/lib/supabase/server";
 import { publicEnv } from "@/lib/public-env";
@@ -164,6 +164,10 @@ export async function POST(request: Request) {
   // An empty body used to be valid when there was one paid plan. With four,
   // guessing which tier someone meant would be guessing at their money.
   const body = bodySchema.safeParse(await request.json().catch(() => ({})));
+  // An over-long promo code fails the schema; say so instead of "Unknown plan".
+  if (!body.success && body.error.issues.some((issue) => issue.path[0] === "promoCode")) {
+    return NextResponse.json({ error: "That promo code is not valid." }, { status: 400 });
+  }
   const planKey = toPaidPlanKey(body.success ? (body.data.plan ?? "") : "");
 
   if (!planKey) {
@@ -187,7 +191,20 @@ export async function POST(request: Request) {
 
   const state = billingStateFrom(existing ?? null);
 
-  if (!state.canSubscribe) {
+  /**
+   * A PLAN SWITCH. Someone already paying on Razorpay picks a different tier
+   * or cycle. Razorpay cannot re-price a UPI mandate, so this creates a NEW
+   * subscription and parks it in switch_subscription_id; the current plan is
+   * untouched until the new one is paid, and then completeSwitch cancels the
+   * old one and refunds its unused days. See lib/billing/switch.ts.
+   */
+  const switching =
+    !state.canSubscribe &&
+    state.isPaid &&
+    existing?.provider === "razorpay" &&
+    Boolean(existing?.razorpay_subscription_id);
+
+  if (!state.canSubscribe && !switching) {
     return NextResponse.json(
       { error: "You already have an active plan. Nothing to pay." },
       { status: 409 },
@@ -207,10 +224,24 @@ export async function POST(request: Request) {
    * entitlement — the tier always arrives from a verified webhook.
    */
   const requestedProvider = body.success ? body.data.provider : undefined;
-  const provider: PaymentProvider =
-    requestedProvider === "paypal" || requestedProvider === "razorpay"
+  // A switch stays on the gateway the customer already pays through.
+  const provider: PaymentProvider = switching
+    ? "razorpay"
+    : requestedProvider === "paypal" || requestedProvider === "razorpay"
       ? requestedProvider
       : providerForCountry(countryFromHeaders(request.headers));
+
+  if (switching) {
+    if (existing?.plan_key === planKey && existing?.billing_cycle === cycle) {
+      return NextResponse.json({ error: "You are already on this plan." }, { status: 409 });
+    }
+    if (body.success && body.data.promoCode?.trim()) {
+      return NextResponse.json(
+        { error: "Promo codes are for a first subscription, not a plan switch." },
+        { status: 400 },
+      );
+    }
+  }
 
   if (provider === "paypal") {
     return startPaypalCheckout({
@@ -293,11 +324,25 @@ export async function POST(request: Request) {
   // Record it BEFORE the popup opens. If the customer authorises and the
   // webhook cannot reach us — which is every local dev machine — the polling
   // fallback still has a subscription id to ask Razorpay about.
-  try {
-    await recordSubscription(user.id, subscription, planKey, cycle, appliedPromo);
-  } catch {
-    // A failure here must not block a checkout that is otherwise fine. The
-    // webhook upserts the same row anyway.
+  if (switching) {
+    // MUST succeed: without it, the paid switch could not be matched to this
+    // customer's current plan. Refuse before the popup opens instead.
+    try {
+      await recordPendingSwitch(user.id, subscription.id);
+    } catch (error) {
+      await cancelSubscription(subscription.id, { immediately: true }).catch(() => undefined);
+      return NextResponse.json(
+        { error: error instanceof Error ? error.message : "Could not start the switch." },
+        { status: 500 },
+      );
+    }
+  } else {
+    try {
+      await recordSubscription(user.id, subscription, planKey, cycle, appliedPromo);
+    } catch {
+      // A failure here must not block a checkout that is otherwise fine. The
+      // webhook upserts the same row anyway.
+    }
   }
 
   // The redemption is recorded now rather than on payment, because a
@@ -328,5 +373,6 @@ export async function POST(request: Request) {
     planName: plan.name,
     cycle,
     email: user.email ?? "",
+    switching,
   });
 }

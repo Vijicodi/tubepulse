@@ -4,8 +4,10 @@ import { startTranscriptRun } from "@/lib/apify/client";
 import { getQuota, spendRefill } from "@/lib/billing/store";
 import { isTranscriptConfigured } from "@/lib/env";
 import { canUseTranscripts } from "@/lib/billing/quota";
-import { idFromUrl } from "@/lib/schemas/transcript";
+import { parseYoutubeVideoInput } from "@/lib/schemas/transcript";
 import { createServerClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { refuseIfOverReserved } from "@/lib/billing/reserve";
 
 /**
  * POST /api/transcript — pull one video's captions.
@@ -56,12 +58,14 @@ export async function POST(request: Request) {
 
   // Validated here rather than at the actor, so a mistyped URL costs nothing
   // and says what is wrong instead of failing three minutes later.
-  const videoId = idFromUrl(body.data.videoUrl.trim());
-  if (!videoId) {
+  // Strict: every accepted link starts a PAID run, so only a real YouTube
+  // video gets through (example.com/foo used to).
+  const video = parseYoutubeVideoInput(body.data.videoUrl);
+  if (!video) {
     return NextResponse.json(
       {
         error:
-          "That does not look like a YouTube video URL. It should contain ?v= or be a youtu.be link.",
+          "That does not look like a YouTube video link. Paste a youtube.com/watch, Shorts or youtu.be link.",
       },
       { status: 400 },
     );
@@ -92,7 +96,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const { data: job, error: jobError } = await supabase
+  const { data: job, error: jobError } = await createAdminClient()
     .from("jobs")
     .insert({
       owner_id: user.id,
@@ -104,7 +108,7 @@ export async function POST(request: Request) {
       error: null,
       // The only record of which video was asked for — the actor may not echo
       // one back, and without this a finished run cannot be attributed.
-      payload: { videoUrl: body.data.videoUrl.trim() },
+      payload: { videoUrl: video.url },
     })
     .select()
     .single();
@@ -116,20 +120,25 @@ export async function POST(request: Request) {
     );
   }
 
+  // Two requests at the same instant both pass the check above. Re-read the
+  // allowance with this job reserved; the loser is withdrawn unbilled.
+  const raced = await refuseIfOverReserved(supabase, user.id, job.id);
+  if (raced) return raced;
+
   try {
     const run = await startTranscriptRun({
-      videoUrl: body.data.videoUrl.trim(),
+      videoUrl: video.url,
       jobId: job.id,
     });
 
-    await supabase
+    await createAdminClient()
       .from("jobs")
       .update({ status: "running", external_run_id: run.runId })
       .eq("id", job.id);
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Could not start the transcript run.";
-    await supabase.from("jobs").update({ status: "failed", error: message }).eq("id", job.id);
+    await createAdminClient().from("jobs").update({ status: "failed", error: message }).eq("id", job.id);
 
     return NextResponse.json({ error: message, jobId: job.id }, { status: 502 });
   }
@@ -142,5 +151,5 @@ export async function POST(request: Request) {
     await spendRefill(user.id, job.id, "transcript");
   }
 
-  return NextResponse.json({ jobId: job.id, videoId }, { status: 202 });
+  return NextResponse.json({ jobId: job.id, videoId: video.videoId }, { status: 202 });
 }

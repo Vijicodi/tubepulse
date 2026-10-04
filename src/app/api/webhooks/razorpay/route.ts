@@ -1,13 +1,20 @@
 import { NextResponse } from "next/server";
 import {
   claimEvent,
+  cancelStraySubscription,
+  clearPendingSwitch,
+  completeSwitch,
+  releaseEvent,
+  subscriptionRowFor,
   consumePromoCycle,
   recordSubscription,
   resolveOwnerId,
 } from "@/lib/billing/store";
 import { requireBillingEnv } from "@/lib/env";
+import { actionForSubscriptionEvent } from "@/lib/billing/switch";
 import { verifyWebhookSignature } from "@/lib/razorpay/signature";
 import {
+  toSubscriptionStatus,
   razorpayWebhookSchema,
   type RazorpaySubscription,
 } from "@/lib/razorpay/schemas";
@@ -117,14 +124,34 @@ async function handleSubscription(
   const isNew = await claimEvent({ id, event, ownerId, payload: fullPayload });
   if (!isNew) return NextResponse.json({ ok: true, replay: true });
 
-  await recordSubscription(ownerId, subscription);
+  try {
+    // Plan switches and replaced subscriptions — see actionForSubscriptionEvent.
+    const action = actionForSubscriptionEvent(
+      await subscriptionRowFor(ownerId),
+      subscription.id,
+      toSubscriptionStatus(subscription.status),
+    );
+    if (action === "complete-switch") await completeSwitch(ownerId, subscription);
+    if (action === "drop-switch") await clearPendingSwitch(ownerId, subscription.id);
+    if (action === "cancel-stray") await cancelStraySubscription(ownerId, subscription.id);
+    if (action !== "record") return NextResponse.json({ ok: true, action });
 
-  // A paid invoice spends one discounted cycle. This sits AFTER the claim
-  // above on purpose — Razorpay retries deliveries, and decrementing per
-  // delivery rather than per claimed event would eat a customer's two
-  // discounted months in a retry storm.
-  if (event === "subscription.charged") {
-    await consumePromoCycle(ownerId);
+    await recordSubscription(ownerId, subscription);
+
+    // A paid invoice spends one discounted cycle. This sits AFTER the claim
+    // above on purpose — Razorpay retries deliveries, and decrementing per
+    // delivery rather than per claimed event would eat a customer's two
+    // discounted months in a retry storm.
+    if (event === "subscription.charged") {
+      await consumePromoCycle(ownerId);
+    }
+  } catch (error) {
+    // The claim was taken but the work did not happen. Release it and answer
+    // 500 so Razorpay retries — a 200 here would lose a payment or a
+    // cancellation permanently (found 2026-10-04).
+    console.error("[razorpay webhook] write failed, releasing claim", event, error);
+    await releaseEvent(id).catch(() => undefined);
+    return NextResponse.json({ error: "Could not record the event." }, { status: 500 });
   }
 
   return NextResponse.json({ ok: true });

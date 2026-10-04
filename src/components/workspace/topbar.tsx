@@ -72,7 +72,16 @@ export function Topbar({
         </span>
 
         <form action={signOut}>
-          <Button type="submit" variant="ghost" size="sm" className="gap-1.5">
+          {/* Named for the phone, where the word is hidden and the icon is
+              all that shows; a nameless button reads as just "button". */}
+          <Button
+            type="submit"
+            variant="ghost"
+            size="sm"
+            className="gap-1.5"
+            aria-label="Sign out"
+            title="Sign out"
+          >
             <LogOut className="size-4" aria-hidden />
             <span className="hidden sm:inline">Sign out</span>
           </Button>

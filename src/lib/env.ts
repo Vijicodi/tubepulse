@@ -25,6 +25,10 @@ const serverEnvSchema = z.object({
   // OPENAI_API_KEY once hid the Go Pro button. isTranscriptConfigured() below
   // is how a page asks whether the feature is switched on.
   APIFY_TRANSCRIPT_ACTOR: z.string().default(""),
+  // YouTube Data API v3 key. Optional for the same reason: when blank, YouTube
+  // research falls back to the (paid) Apify actor instead of failing. When set,
+  // channel reads are free and finish inline — see lib/youtube/data-api.ts.
+  YOUTUBE_API_KEY: z.string().default(""),
   // The official Instagram scraper. Unlike the transcript actor this one is
   // REQUIRED-with-a-default rather than opt-in: Instagram is a first-class
   // platform in the UI, not a feature that can be switched off, and the default

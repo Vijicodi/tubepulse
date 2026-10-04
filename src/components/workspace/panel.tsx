@@ -27,7 +27,9 @@ export function WorkspacePanel({
   return (
     <div className="animate-rise flex min-h-full flex-col gap-4">
       <div className="flex flex-wrap items-end justify-between gap-4">
-        <div className="space-y-1.5">
+        {/* min-w-0 + wrap-anywhere: titles include user-typed project and
+            channel names, and one with no spaces never wrapped. */}
+        <div className="min-w-0 space-y-1.5 wrap-anywhere">
           {badge}
           <h2 className="text-2xl font-semibold tracking-tight">{title}</h2>
           {description && (

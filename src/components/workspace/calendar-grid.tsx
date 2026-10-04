@@ -1,11 +1,12 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, Loader2, Plus, X } from "lucide-react";
 import type { CalendarMonth } from "@/lib/analytics/calendar";
 import { shiftMonth } from "@/lib/analytics/calendar";
 import {
+  moveSlot,
   removeSlot,
   scheduleIdea,
   setSlotStatus,
@@ -81,6 +82,10 @@ export function CalendarGrid({
 
       {/* Scrolls inside its own container on narrow screens rather than making
           the page scroll sideways. Seven columns cannot usefully reflow. */}
+      {/* On a phone the week does not fit; say so, or Thu–Sat look missing. */}
+      <p className="text-muted-foreground mb-1 text-[0.68rem] sm:hidden">
+        Swipe sideways to see the whole week →
+      </p>
       <div className="overflow-x-auto">
         <div className="min-w-[42rem]">
           <div className="mb-1 grid grid-cols-7 gap-1">
@@ -135,6 +140,8 @@ export function CalendarGrid({
                     <li key={slot.id}>
                       <SlotChip
                         slotId={slot.id}
+                        date={day.key}
+                        minDate={today}
                         title={titles[slot.idea_id] ?? "Untitled idea"}
                         status={slot.status}
                       />
@@ -171,20 +178,25 @@ export function CalendarGrid({
 /** One planned slot: its title, its state, and a way to remove it. */
 function SlotChip({
   slotId,
+  date,
+  minDate,
   title,
   status,
 }: {
   slotId: string;
+  date: string;
+  minDate: string;
   title: string;
   status: "planned" | "published" | "dropped";
 }) {
   const [removeState, remove, removing] = useActionState(removeSlot, INITIAL);
+  const [moveState, move, moving] = useActionState(moveSlot, INITIAL);
   const [statusState, changeStatus, changing] = useActionState(
     setSlotStatus,
     INITIAL,
   );
 
-  const error = removeState.error ?? statusState.error;
+  const error = removeState.error ?? statusState.error ?? moveState.error;
 
   return (
     <div
@@ -204,7 +216,9 @@ function SlotChip({
             type="submit"
             disabled={removing}
             aria-label={`Remove ${title} from the calendar`}
-            className="text-muted-foreground/50 hover:text-foreground shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+            // Always visible: a touchscreen has no hover, so an X that only
+            // appears on hover could never be pressed on a phone.
+            className="text-muted-foreground/60 hover:text-foreground shrink-0 transition-colors"
           >
             {removing ? (
               <Loader2 className="size-3 animate-spin" aria-hidden />
@@ -244,6 +258,29 @@ function SlotChip({
         </button>
       </form>
 
+      {/* Move to another day. A native date input: works with a thumb, and
+          submits the moment a date is picked. */}
+      <form action={move} className="mt-0.5">
+        <input type="hidden" name="slotId" value={slotId} />
+        <label className="text-muted-foreground/70 flex items-center gap-1 text-[0.62rem] tracking-wide uppercase">
+          {moving ? "Moving…" : "Move to"}
+          <input
+            type="date"
+            name="scheduledFor"
+            defaultValue={date}
+            min={minDate}
+            disabled={moving}
+            aria-label={`Move ${title} to another date`}
+            onChange={(event) => {
+              if (event.currentTarget.value && event.currentTarget.value !== date) {
+                event.currentTarget.form?.requestSubmit();
+              }
+            }}
+            className="bg-transparent text-[0.62rem] normal-case"
+          />
+        </label>
+      </form>
+
       {error && <p className="text-destructive mt-0.5 text-[0.62rem]">{error}</p>}
     </div>
   );
@@ -260,15 +297,23 @@ function ScheduleForm({
   onDone: () => void;
 }) {
   const [state, submit, pending] = useActionState(scheduleIdea, INITIAL);
+  const submitted = useRef(false);
+
+  // Close only once the action has ANSWERED, and only on success. Closing
+  // straight away hid every failure and left a 3–5s gap where the panel was
+  // gone but the slot had not appeared (found 2026-10-04).
+  useEffect(() => {
+    if (submitted.current && !pending) {
+      submitted.current = false;
+      if (!state.error) onDone();
+    }
+  }, [pending, state, onDone]);
 
   return (
     <form
-      action={async (formData) => {
-        await submit(formData);
-        // Closed optimistically. The action revalidates the page, so a failure
-        // still surfaces — on the reloaded grid rather than in a panel that
-        // has already gone.
-        onDone();
+      action={(formData) => {
+        submitted.current = true;
+        submit(formData);
       }}
       className="border-border/60 bg-background mt-1.5 space-y-1 rounded-lg border p-1.5"
     >

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ArrowUpRight } from "lucide-react";
 import { PLANS, plansAbove, type PaidPlanKey, type PlanKey } from "@/lib/billing/plans";
 import { cn } from "@/lib/utils";
+import { formatDay } from "@/lib/format";
 
 /**
  * The sidebar's plan-and-usage card.
@@ -123,7 +124,9 @@ export function SidebarPlanCard({
       {/* The daily cap is the limit most people meet first and the one least
           expected, so it says so plainly at the moment it bites rather than
           only inside a failed run's error. */}
-      {dailyUsed >= dailyCap && (
+      {/* Only say "tomorrow" when tomorrow helps. With the month used up,
+          tomorrow changes nothing (found 2026-10-04). */}
+      {dailyUsed >= dailyCap && remaining > 0 && (
         <p className="text-destructive text-[0.68rem] leading-relaxed">
           Daily cap reached. More runs tomorrow.
         </p>
@@ -153,16 +156,12 @@ export function SidebarPlanCard({
 /**
  * "12 Sep" — short enough for a 256px rail.
  *
- * UTC to match the allowance period, which is computed in UTC. Formatting this
- * one in local time would show a reset date a day out for anyone west of
- * Greenwich, on a number the quota maths treats as authoritative.
+ * In IST, like every other date in the workspace (lib/format.ts). The period
+ * is computed in UTC and resets at a UTC midnight, which is 05:30 the same
+ * day in India, so the printed date is the one the quota maths means.
  */
 function formatShort(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "soon";
-  return date.toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "short",
-    timeZone: "UTC",
-  });
+  return formatDay(date);
 }

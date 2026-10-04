@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { cn } from "@/lib/utils";
+import type { ProjectCap } from "@/lib/projects/limit";
 import { Sidebar } from "./sidebar";
 import { Topbar } from "./topbar";
 import { useSidebarCollapsed } from "./use-sidebar";
@@ -30,10 +31,13 @@ export function WorkspaceShell({
   email,
   eyebrow,
   planCard,
+  projectCap,
   children,
 }: {
   email: string;
   eyebrow: string;
+  /** Set only when the plan's project cap is reached. See Sidebar. */
+  projectCap?: ProjectCap | null;
   /** Server-rendered plan/usage card for the sidebar. See Sidebar's prop. */
   planCard?: React.ReactNode;
   children: React.ReactNode;
@@ -53,7 +57,7 @@ export function WorkspaceShell({
           collapsed ? "w-0" : "w-64",
         )}
       >
-        <Sidebar planCard={planCard} />
+        <Sidebar planCard={planCard} projectCap={projectCap} />
       </div>
 
       {navOpen && (
@@ -64,7 +68,11 @@ export function WorkspaceShell({
             className="absolute inset-0 bg-black/60 backdrop-blur-sm"
           />
           <div className="animate-rise absolute inset-y-0 left-0">
-            <Sidebar onNavigate={() => setNavOpen(false)} planCard={planCard} />
+            <Sidebar
+              onNavigate={() => setNavOpen(false)}
+              planCard={planCard}
+              projectCap={projectCap}
+            />
           </div>
         </div>
       )}
@@ -80,7 +88,13 @@ export function WorkspaceShell({
 
         {/* Native scrolling, deliberately. Lenis is banned under (workspace)/ —
             fighting a data table to scroll is misery by day three. */}
-        <main className="min-h-0 flex-1 overflow-y-auto p-4 lg:p-6">{children}</main>
+        <main
+          id="main"
+          tabIndex={-1}
+          className="min-h-0 flex-1 overflow-y-auto p-4 outline-none lg:p-6"
+        >
+          {children}
+        </main>
       </div>
     </div>
   );

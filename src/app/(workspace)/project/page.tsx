@@ -6,11 +6,15 @@ import { CreateProjectForm } from "@/components/workspace/create-project-form";
 import { StatGrid } from "@/components/workspace/stat-grid";
 import { VideoTable } from "@/components/workspace/video-table";
 import { IdeaCard } from "@/components/workspace/idea-card";
+import { ConfirmDelete } from "@/components/workspace/confirm-delete";
+import { deleteChannel } from "@/lib/channels/actions";
+import { atHandle } from "@/lib/platform/display";
 import { indexByVideoId, resolveEvidence } from "@/lib/ideas/evidence";
 import { getQuota } from "@/lib/billing/store";
 import { getCurrentProject } from "@/lib/projects/current";
 import { nextStep } from "@/lib/projects/next-step";
 import { createServerClient } from "@/lib/supabase/server";
+import { formatDay } from "@/lib/format";
 
 export const metadata = { title: "Project — TubePulse" };
 
@@ -26,7 +30,17 @@ function ago(iso: string): string {
   if (days <= 0) return "today";
   if (days === 1) return "yesterday";
   if (days < 30) return `${days} days ago`;
-  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return formatDay(iso);
+}
+
+/** A pulsing "Reading now" for a channel whose run is still going. */
+function ReadingNow() {
+  return (
+    <span className="inline-flex items-center gap-1.5 text-[var(--brand-2)]">
+      <span className="size-1.5 animate-pulse rounded-full bg-[var(--brand-2)]" aria-hidden />
+      Reading now
+    </span>
+  );
 }
 
 export default async function ProjectPage() {
@@ -88,6 +102,14 @@ export default async function ProjectPage() {
 
   const jobRunning = recentJobs.some(
     (job) => job.status === "queued" || job.status === "running",
+  );
+  // The channel a run is reading right now. Its row exists from the moment
+  // the run starts, with no numbers yet; "Not read yet" undersold that.
+  const readingIds = new Set(
+    recentJobs
+      .filter((job) => job.status === "queued" || job.status === "running")
+      .map((job) => job.channel_id)
+      .filter((id): id is string => Boolean(id)),
   );
   // Only the most recent job counts as "the last run" — an old failure that has
   // since been superseded is history, not a problem to act on.
@@ -196,11 +218,11 @@ export default async function ProjectPage() {
             from them.
           </EmptyState>
         ) : (
-          <ul className="grid gap-2 sm:grid-cols-2">
+          <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             {channels.map((channel) => {
               const own = allVideos.filter((video) => video.channel_id === channel.id);
               return (
-                <li key={channel.id}>
+                <li key={channel.id} className="relative min-w-0">
                   <Link
                     href={`/channels/${channel.id}`}
                     className="surface-raised lift hover:border-border block rounded-xl p-4 hover:-translate-y-0.5"
@@ -220,11 +242,26 @@ export default async function ProjectPage() {
                       </span>
                     </div>
                     <p className="text-muted-foreground mt-3 text-xs">
-                      {channel.last_scraped_at
-                        ? `Read ${ago(channel.last_scraped_at)}`
-                        : "Not read yet"}
+                      {readingIds.has(channel.id) ? (
+                        <ReadingNow />
+                      ) : channel.last_scraped_at ? (
+                        `Read ${ago(channel.last_scraped_at)}`
+                      ) : (
+                        "Not read yet"
+                      )}
                     </p>
                   </Link>
+                  {/* A sibling of the link, not inside it: a button inside an
+                      anchor is invalid and the click would also navigate. */}
+                  <ConfirmDelete
+                    action={deleteChannel}
+                    fields={{ channelId: channel.id }}
+                    label={`Remove ${atHandle(channel.handle)}`}
+                    question={`Remove ${atHandle(channel.handle)}?`}
+                    detail="Its videos and ideas go too. Runs you already used stay used."
+                    confirmLabel="Remove"
+                    className="absolute right-2.5 bottom-2.5"
+                  />
                 </li>
               );
             })}
@@ -303,7 +340,7 @@ export default async function ProjectPage() {
               Open the Idea lab
             </Link>
           </div>
-          <div className="grid gap-3">
+          <div className="grid grid-cols-1 gap-3">
             {allIdeas.slice(0, 2).map((idea) => (
               <IdeaCard
                 key={idea.id}

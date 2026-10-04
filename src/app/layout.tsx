@@ -23,6 +23,7 @@
 import type { Metadata } from "next";
 import { DM_Sans, Instrument_Serif, Space_Mono } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";
+import { SkipLink } from "@/components/a11y/skip-link";
 import "./index.css";
 
 const fontSans = DM_Sans({
@@ -80,6 +81,7 @@ export default function RootLayout({
       <body
         className={`${fontSans.variable} ${fontSerif.variable} ${fontMono.variable} ${fontDisplay.variable} bg-background text-foreground flex min-h-full flex-col font-sans antialiased`}
       >
+        <SkipLink />
         {children}
         <Toaster />
       </body>

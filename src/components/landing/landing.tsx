@@ -137,7 +137,11 @@ export function Landing({ signedIn = false }: { signedIn?: boolean }) {
       {/* -------------------------------------------------------------- hero */}
       {/* pt-32 clears the fixed nav. Without it the eyebrow is vertically
           centred into the back of the nav pill on short viewports. */}
-      <section className="relative flex min-h-[100svh] items-center justify-center overflow-hidden px-6 pt-32 pb-24">
+      <section
+        id="main"
+        tabIndex={-1}
+        className="relative flex min-h-[100svh] items-center justify-center overflow-hidden px-6 pt-32 pb-24 outline-none"
+      >
         <PulseField />
 
         {/* Dim and small on purpose — it seats the headline, it is not the

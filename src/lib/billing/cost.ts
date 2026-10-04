@@ -47,13 +47,17 @@ export interface Rates {
  * Derived from the same measurements as the margin sums in plans.ts, converted
  * at ₹88 to the dollar:
  *
- *   Apify YouTube    ₹4.50 per 100 videos   = $0.0512 / 100 = 0.0512c a video
+ *   Apify YouTube    $0.004 a video          = 0.4c a video — MEASURED on
+ *                    live runs 2026-10-04 (the old 0.0512c assumption was
+ *                    7.8x too low). Only the Apify fallback pays this: YouTube
+ *                    is normally read through the free Data API (source
+ *                    "youtube_api"), which produces no cost line.
  *   Apify Instagram  $0.0027 an item        = 0.27c a post
  *   Firecrawl        ₹1.50 per ~3 pages     = 0.57c a page
  *   Whisper          $0.006 a minute        = 0.6c a minute
  */
 export const RATES: Rates = {
-  apifyPerVideo: 0.0512,
+  apifyPerVideo: 0.4,
   apifyPerPost: 0.27,
   firecrawlPerPage: 0.57,
   llmInputPer1k: { mini: 0.015, premium: 0.25 },
@@ -80,6 +84,8 @@ export interface RunCost {
 /** Everything measurable about one run. Every field optional — kinds differ. */
 export interface Usage {
   videosScraped?: number;
+  /** Where the videos came from. YouTube's Data API is free; Apify is not. */
+  source?: "apify" | "youtube_api";
   postsScraped?: number;
   pagesEnriched?: number;
   llmTier?: "mini" | "premium";
@@ -98,10 +104,10 @@ export interface Usage {
 export function costOf(usage: Usage, rates: Rates = RATES): RunCost {
   const lines: CostLine[] = [];
 
-  if (usage.videosScraped && usage.videosScraped > 0) {
+  if (usage.videosScraped && usage.videosScraped > 0 && usage.source !== "youtube_api") {
     lines.push({
       provider: "apify",
-      detail: `${usage.videosScraped.toLocaleString("en-US")} videos read`,
+      detail: `${usage.videosScraped.toLocaleString("en-IN")} videos read`,
       cents: usage.videosScraped * rates.apifyPerVideo,
     });
   }
@@ -109,7 +115,7 @@ export function costOf(usage: Usage, rates: Rates = RATES): RunCost {
   if (usage.postsScraped && usage.postsScraped > 0) {
     lines.push({
       provider: "apify",
-      detail: `${usage.postsScraped.toLocaleString("en-US")} posts read`,
+      detail: `${usage.postsScraped.toLocaleString("en-IN")} posts read`,
       cents: usage.postsScraped * rates.apifyPerPost,
     });
   }

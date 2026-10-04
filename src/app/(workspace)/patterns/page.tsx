@@ -9,6 +9,7 @@ import {
 } from "@/lib/analytics/patterns";
 import { getCurrentProject } from "@/lib/projects/current";
 import { createServerClient } from "@/lib/supabase/server";
+import { formatNumber } from "@/lib/format";
 import { CreateProjectForm } from "@/components/workspace/create-project-form";
 
 export const metadata = { title: "Patterns — TubePulse" };
@@ -86,12 +87,12 @@ export default async function PatternsPage() {
   return (
     <WorkspacePanel
       title="Patterns"
-      description={`Across ${all.length.toLocaleString("en-US")} videos in this project. Reading costs nothing.`}
+      description={`Across ${formatNumber(all.length)} videos in this project. Reading costs nothing.`}
     >
       <div className="space-y-4">
         <PatternPanel
           title="When they post"
-          description="Mean outlier score by the day a video went out. Days are UTC, so a channel posting near midnight may straddle two."
+          description="Mean outlier score by the day a video went out, in India time (IST)."
           pattern={days}
           bestLabel="Best day"
         />

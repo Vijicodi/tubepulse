@@ -343,6 +343,15 @@ export async function claimEvent({
   return true;
 }
 
+/**
+ * Undo a claim whose work then failed, so Razorpay's retry is processed rather
+ * than dismissed as a replay. Without this, a claimed event whose row write
+ * failed was answered 200 and lost for good.
+ */
+export async function releaseEvent(id: string): Promise<void> {
+  await writeClient().from("billing_events").delete().eq("id", id);
+}
+
 /** The signed-in user's subscription row, or null. Respects RLS. */
 export async function getSubscriptionRow(): Promise<SubscriptionRow | null> {
   const supabase = await createServerClient();
@@ -371,7 +380,14 @@ export async function getReconciledBillingState(): Promise<BillingState> {
   const user = await getUser();
   if (!user) return FREE_STATE;
   const row = await getSubscriptionRow();
-  const settling = row?.status === "created" || row?.status === "pending";
+  // An 'active' row past its period end means a renewal (or a halt) never
+  // reached us — ask Razorpay, so a paying customer is not locked out by a
+  // lost webhook and a lapsed one stops being treated as paid.
+  const overdue =
+    row?.status === "active" &&
+    !!row.current_period_end &&
+    new Date(row.current_period_end).getTime() < Date.now();
+  const settling = row?.status === "created" || row?.status === "pending" || overdue;
 
   if (row && settling && row.provider !== "paypal" && row.razorpay_subscription_id) {
     try {
@@ -420,10 +436,15 @@ export async function getCreditHistory(limit = 10): Promise<ScrapeCreditRow[]> {
  * Takes a caller-supplied client so the research route can reuse its own
  * request-scoped one, and so this runs under RLS like everything else.
  */
+const STALE_IDEA_JOB_MS = 10 * 60 * 1000;
+const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000;
+
 export async function getQuota(
   supabase: Awaited<ReturnType<typeof createServerClient>>,
   ownerId: string,
   now: Date = new Date(),
+  /** Leave one job out of the count — the one this request just reserved. */
+  options: { excludeJobId?: string } = {},
 ): Promise<Quota> {
   const { data: row } = await supabase
     .from("subscriptions")
@@ -441,8 +462,12 @@ export async function getQuota(
     ? periodEndFor(periodStart, new Date(subscriptionStart).getUTCDate())
     : null;
 
+  // The daily cap resets at midnight IST, not UTC (which is 05:30 IST — a
+  // customer at 1am was still on "yesterday"). IST has no DST, so a fixed
+  // +05:30 offset is exact.
+  const istNow = new Date(now.getTime() + IST_OFFSET_MS);
   const startOfToday = new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+    Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), istNow.getUTCDate()) - IST_OFFSET_MS,
   );
 
   // A job that never ran is not a job someone should pay for.
@@ -455,15 +480,28 @@ export async function getQuota(
   // to both. Adding a third billable job kind means adding it to this list too,
   // or it silently becomes free.
   const countBillableJobs = async (since: Date) => {
-    const { count } = await supabase
+    let query = supabase
       .from("jobs")
       .select("id", { count: "exact", head: true })
       .eq("owner_id", ownerId)
       .in("kind", BILLABLE_JOB_KINDS)
       .neq("status", "failed")
       .gte("created_at", since.toISOString());
+    if (options.excludeJobId) query = query.neq("id", options.excludeJobId);
+    const { count } = await query;
     return count ?? 0;
   };
+
+  // An idea generation is one request that ends within the route's 180s
+  // ceiling. One still "running" ten minutes later was killed mid-flight and
+  // will never finish — release it so it stops counting against the user.
+  await writeClient()
+    .from("jobs")
+    .update({ status: "failed", error: "Timed out before finishing. Not charged." })
+    .eq("owner_id", ownerId)
+    .eq("kind", "idea_generation")
+    .in("status", ["queued", "running"])
+    .lt("created_at", new Date(now.getTime() - STALE_IDEA_JOB_MS).toISOString());
 
   const [scrapesThisPeriod, scrapesToday, balance] = await Promise.all([
     countBillableJobs(periodStart),
@@ -550,5 +588,174 @@ export async function consumePromoCycle(ownerId: string): Promise<void> {
   // next to a retry storm.
   if (error) {
     console.error("[promo] could not decrement the cycle count", error.message);
+  }
+}
+
+/**
+ * Record that a plan switch has started: the NEW subscription waits in
+ * switch_subscription_id while the customer keeps the plan they pay for now.
+ * If they abandon the popup, nothing about their current plan has changed.
+ */
+export async function recordPendingSwitch(ownerId: string, subscriptionId: string): Promise<void> {
+  // A switch already pending (popup closed, then a different plan picked)
+  // must not be forgotten while still live at Razorpay — authorised later
+  // from an old tab, it would charge every month with nothing tracking it.
+  const { data: current } = await writeClient()
+    .from("subscriptions")
+    .select("switch_subscription_id")
+    .eq("owner_id", ownerId)
+    .maybeSingle();
+  const previous = current?.switch_subscription_id;
+  if (previous && previous !== subscriptionId) {
+    const { cancelSubscription } = await import("@/lib/razorpay/client");
+    await cancelSubscription(previous, { immediately: true }).catch((error) =>
+      // A never-authorised subscription may refuse a cancel; it then simply
+      // expires, and the webhook's cancel-stray rule covers a late approval.
+      console.warn("[plan switch] could not cancel previous pending switch", previous, error),
+    );
+  }
+
+  const { error } = await writeClient()
+    .from("subscriptions")
+    .update({ switch_subscription_id: subscriptionId })
+    .eq("owner_id", ownerId);
+  if (error) throw new Error(`Could not record the plan switch: ${error.message}`);
+}
+
+/**
+ * The new plan of a switch has been paid for (Razorpay says authenticated or
+ * active). Make it the customer's plan, cancel the old subscription now, and
+ * refund the old plan's unused days.
+ *
+ * Idempotent: the webhook and the sync route can both arrive here. The row is
+ * CLAIMED first — switch_subscription_id is cleared only where it still holds
+ * this id — so exactly one caller does the cancel and the refund.
+ *
+ * Returns the refund in paise (0 when there was nothing to refund).
+ */
+export async function completeSwitch(
+  ownerId: string,
+  newSubscription: RazorpaySubscription,
+): Promise<number> {
+  const { data: claimed } = await writeClient()
+    .from("subscriptions")
+    .update({ switch_subscription_id: null })
+    .eq("owner_id", ownerId)
+    .eq("switch_subscription_id", newSubscription.id)
+    .select("razorpay_subscription_id")
+    .maybeSingle();
+
+  if (!claimed) {
+    // Someone else completed it already. Just make sure the row is current.
+    await recordSubscription(ownerId, newSubscription);
+    return 0;
+  }
+
+  const oldId = claimed.razorpay_subscription_id;
+  let refunded = 0;
+
+  // The new plan becomes the plan FIRST, so a failure below can never leave
+  // a paying customer without access. Promo fields belonged to the old
+  // subscription's offer and do not carry over.
+  await recordSubscription(ownerId, newSubscription);
+  await writeClient()
+    .from("subscriptions")
+    .update({
+      cancel_at_period_end: false,
+      cancelled_at: null,
+      promo_code: null,
+      promo_cycles_total: null,
+      promo_cycles_remaining: null,
+      promo_renews_at_cents: null,
+    })
+    .eq("owner_id", ownerId);
+
+  if (oldId && oldId !== newSubscription.id) {
+    const { cancelSubscription, latestPaidInvoice, refundPayment } = await import(
+      "@/lib/razorpay/client"
+    );
+    const { unusedRefundPaise } = await import("./switch");
+
+    try {
+      await cancelSubscription(oldId, { immediately: true });
+    } catch (error) {
+      // Already cancelled/completed is fine. Anything else is logged loudly:
+      // a still-live old mandate could charge again next month.
+      console.error("[plan switch] could not cancel old subscription", oldId, error);
+    }
+
+    try {
+      const invoice = await latestPaidInvoice(oldId);
+      if (invoice) {
+        const amount = unusedRefundPaise({ ...invoice, now: new Date() });
+        if (amount > 0) {
+          await refundPayment(invoice.paymentId, amount, {
+            reason: "plan switch: unused days",
+            owner_id: ownerId,
+            replaced_by: newSubscription.id,
+          });
+          refunded = amount;
+        }
+      }
+    } catch (error) {
+      console.error("[plan switch] refund failed — refund manually", oldId, error);
+    }
+  }
+
+  return refunded;
+}
+
+/** The owner's subscription row, read with the service role (webhooks have no session). */
+export async function subscriptionRowFor(ownerId: string): Promise<SubscriptionRow | null> {
+  const { data } = await writeClient()
+    .from("subscriptions")
+    .select("*")
+    .eq("owner_id", ownerId)
+    .maybeSingle();
+  return data ?? null;
+}
+
+/** A switch whose new subscription failed or was abandoned: forget it, keep the current plan. */
+export async function clearPendingSwitch(ownerId: string, subscriptionId: string): Promise<void> {
+  await writeClient()
+    .from("subscriptions")
+    .update({ switch_subscription_id: null })
+    .eq("owner_id", ownerId)
+    .eq("switch_subscription_id", subscriptionId);
+}
+
+/**
+ * A paid subscription that no row points at (see "cancel-stray" in
+ * switch.ts). Cancel it now and refund its last payment IN FULL — the customer
+ * is already on another plan, so this one bought them nothing.
+ */
+export async function cancelStraySubscription(ownerId: string, subscriptionId: string): Promise<void> {
+  const { cancelSubscription, fetchSubscription, latestPaidInvoice, refundPayment } = await import(
+    "@/lib/razorpay/client"
+  );
+
+  // A webhook payload is a snapshot from when the event happened. A late or
+  // retried event can describe a plan that has since been cancelled (e.g. the
+  // one a switch replaced) as "active". Act only on what Razorpay says NOW.
+  const live = await fetchSubscription(subscriptionId).catch(() => null);
+  const liveStatus = live ? toSubscriptionStatus(live.status) : null;
+  if (liveStatus !== "authenticated" && liveStatus !== "active") return;
+
+  console.error("[billing] stray paid subscription — cancelling and refunding", ownerId, subscriptionId);
+  try {
+    await cancelSubscription(subscriptionId, { immediately: true });
+  } catch (error) {
+    console.error("[billing] could not cancel stray subscription", subscriptionId, error);
+  }
+  try {
+    const invoice = await latestPaidInvoice(subscriptionId);
+    if (invoice && invoice.amountPaidPaise > 0) {
+      await refundPayment(invoice.paymentId, invoice.amountPaidPaise, {
+        reason: "stray subscription: not the customer's active plan",
+        owner_id: ownerId,
+      });
+    }
+  } catch (error) {
+    console.error("[billing] stray subscription refund failed — refund manually", subscriptionId, error);
   }
 }

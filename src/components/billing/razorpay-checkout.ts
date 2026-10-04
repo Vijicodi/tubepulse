@@ -22,6 +22,8 @@ type CheckoutTarget =
 type CheckoutOptions = CheckoutTarget & {
   key: string;
   name: string;
+  /** Square logo shown in the popup header. Absolute URL. */
+  image?: string;
   description: string;
   prefill: { email: string };
   theme: { color: string };

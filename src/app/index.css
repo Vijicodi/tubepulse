@@ -302,6 +302,28 @@
   }
 }
 
+/* The landing preloader's failsafe. The component lifts the curtain itself
+   within about a second, but only once React has hydrated; on a slow phone
+   that can be late, and a server-rendered hero should never wait on script.
+   So CSS fades it out by about 0.95s whatever happens, and never shows it at all for
+   anyone who asked for reduced motion. */
+@keyframes tp-preloader-failsafe {
+  to {
+    opacity: 0;
+    visibility: hidden;
+  }
+}
+
+.tp-preloader {
+  animation: tp-preloader-failsafe 250ms ease-out 700ms forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tp-preloader {
+    display: none;
+  }
+}
+
 @utility animate-drift {
   animation: tp-drift 18s ease-in-out infinite;
 }

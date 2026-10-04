@@ -75,7 +75,7 @@ export default async function SavedIdeasPage() {
           and it will keep here with the videos behind it.
         </EmptyState>
       ) : (
-        <div className="grid gap-3">
+        <div className="grid grid-cols-1 gap-3">
           {saved.map((idea) => (
             <IdeaCard
               key={idea.id}

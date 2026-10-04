@@ -1,7 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchRunItems } from "./client";
-import { normalizeApifyDataset } from "./normalize";
+import { normalizeApifyDataset, type NormalizedScrape } from "./normalize";
 import {
   instagramError,
   normalizeInstagramDataset,
@@ -51,12 +51,26 @@ export async function ingestRun(
   if (!job?.channel_id) throw new Error("Job has no channel attached.");
 
   const items = await fetchRunItems(datasetId);
-  const { channel, videos, rejected } = normalizeApifyDataset(items);
+  return storeYoutubeScrape(supabase, jobId, job.channel_id, normalizeApifyDataset(items), "apify");
+}
+
+/**
+ * Score and store one channel read, whichever source produced it — the Apify
+ * actor (webhook/sync) or YouTube's Data API (inline, see youtube/data-api.ts).
+ * One function, so the two paths cannot drift apart on what a run saves.
+ */
+export async function storeYoutubeScrape(
+  supabase: SupabaseClient<Database>,
+  jobId: string,
+  channelId: string,
+  { channel, videos, rejected }: NormalizedScrape,
+  source: "apify" | "youtube_api",
+): Promise<IngestResult> {
 
   if (videos.length === 0) {
     throw new Error(
-      "The scrape returned no usable videos. The channel may be empty or private, " +
-        "or the actor's output shape changed.",
+      "We could not find any public videos on that channel. Check the handle, or " +
+        "that the channel has public uploads. This run was not charged.",
     );
   }
 
@@ -64,7 +78,7 @@ export async function ingestRun(
 
   const { error: videoError } = await supabase.from("videos").upsert(
     scored.map((video) => ({
-      channel_id: job.channel_id!,
+      channel_id: channelId,
       video_id: video.videoId,
       title: video.title,
       url: video.url,
@@ -91,14 +105,14 @@ export async function ingestRun(
         thumbnail_url: channel.thumbnailUrl,
         last_scraped_at: new Date().toISOString(),
       })
-      .eq("id", job.channel_id);
+      .eq("id", channelId);
   } else {
     // Still stamp the scrape time, so the UI never shows "never scraped" for a
     // channel we clearly just read.
     await supabase
       .from("channels")
       .update({ last_scraped_at: new Date().toISOString() })
-      .eq("id", job.channel_id);
+      .eq("id", channelId);
   }
 
   if (rejected.length > 0) {
@@ -114,7 +128,7 @@ export async function ingestRun(
       // which is not the same as what was requested: an actor can return
       // fewer items than asked for, and a customer should be billed for the
       // former.
-      usage: { videosScraped: scored.length },
+      usage: { videosScraped: scored.length, source },
       trail: [
         {
           step: "collect",
@@ -275,8 +289,8 @@ export async function ingestInstagramRun(
 
   if (posts.length === 0) {
     throw new Error(
-      "That profile returned no usable posts. It may be private, or the " +
-        "actor's output shape changed.",
+      "We could not read any posts from that profile. It may be private or " +
+        "have no posts yet. This run was not charged.",
     );
   }
 

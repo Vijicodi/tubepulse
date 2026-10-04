@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createServerClient } from "@/lib/supabase/server";
+import { safeNext } from "@/lib/auth/safe-next";
 
 /**
  * GET /auth/callback — where Google sends the user back.
@@ -38,6 +39,5 @@ export async function GET(request: Request) {
     );
   }
 
-  const safeNext = next.startsWith("/") && !next.startsWith("//") ? next : "/projects";
-  return NextResponse.redirect(new URL(safeNext, url.origin));
+  return NextResponse.redirect(new URL(safeNext(next), url.origin));
 }

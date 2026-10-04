@@ -38,6 +38,19 @@ export default async function RunsPage() {
 
   const runs = jobs ?? [];
 
+  // Name what each run was for. A deleted competitor leaves channel_id null
+  // (0018); the run still shows, just without a name.
+  const channelIds = [...new Set(runs.map((job) => job.channel_id).filter(Boolean))] as string[];
+  const { data: channels } = channelIds.length
+    ? await supabase.from("channels").select("id, title, handle").in("id", channelIds)
+    : { data: [] as { id: string; title: string | null; handle: string }[] };
+  const channelName = new Map((channels ?? []).map((c) => [c.id, c.title ?? c.handle]));
+  const subjectOf = (job: (typeof runs)[number]): string | null => {
+    if (job.channel_id && channelName.has(job.channel_id)) return channelName.get(job.channel_id)!;
+    const payload = job.payload as { videoUrl?: unknown } | null;
+    return typeof payload?.videoUrl === "string" ? payload.videoUrl : null;
+  };
+
   return (
     <WorkspacePanel
       title="Runs"
@@ -58,6 +71,7 @@ export default async function RunsPage() {
             <RunCard
               key={job.id}
               job={job}
+              subject={subjectOf(job)}
               showCost={plan.features.costBreakdown}
               showTrail={plan.features.auditTrail}
             />

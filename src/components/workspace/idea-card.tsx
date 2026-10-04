@@ -1,5 +1,8 @@
 import { ChevronRight, ExternalLink } from "lucide-react";
 import { SaveIdeaButton } from "./save-idea-button";
+import { ConfirmDelete } from "./confirm-delete";
+import { deleteIdea } from "@/lib/ideas/actions";
+import { ideaDeleteDetail } from "@/lib/ideas/delete-copy";
 import type { IdeaRow } from "@/lib/supabase/types";
 
 /**
@@ -47,16 +50,27 @@ export function IdeaCard({
   idea,
   evidence,
   channelName,
+  deletable,
 }: {
   idea: IdeaRow;
   /** Resolved from `idea.evidence_video_ids`, in the order the model cited them. */
   evidence: EvidenceVideo[];
   /** Shown only on Saved ideas, where cards from several channels sit together. */
   channelName?: string;
+  /**
+   * Offer a delete, and say how many calendar slots it takes with it. Absent
+   * means no delete — only the Idea lab, where ideas pile up, passes it.
+   */
+  deletable?: { scheduled: number };
 }) {
   return (
-    <article className="surface-raised rounded-xl p-5">
-      <div className="flex items-start justify-between gap-4">
+    // min-w-0 + wrap-anywhere: this card sits in grid and flex tracks, and a
+    // grid item defaults to min-width:auto, so one long unbroken title or URL
+    // used to widen the whole column past a phone's edge.
+    <article className="surface-raised relative min-w-0 rounded-xl p-5 wrap-anywhere">
+      {/* Stacked on a phone: beside the meter and two buttons the title was
+          left about a third of the card and broke every other word. */}
+      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
         <div className="min-w-0">
           {channelName && (
             <p className="text-muted-foreground mb-1 font-mono text-[0.62rem] tracking-[0.14em] uppercase">
@@ -65,9 +79,18 @@ export function IdeaCard({
           )}
           <h3 className="font-semibold tracking-tight text-pretty">{idea.title}</h3>
         </div>
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="-ml-0.5 flex shrink-0 items-center gap-1 self-start sm:ml-0">
           <ConfidenceMeter value={idea.confidence} />
           <SaveIdeaButton ideaId={idea.id} saved={idea.saved_at !== null} />
+          {deletable && (
+            <ConfirmDelete
+              action={deleteIdea}
+              fields={{ ideaId: idea.id }}
+              label="Delete this idea"
+              question={`Delete “${idea.title}”?`}
+              detail={ideaDeleteDetail(deletable.scheduled)}
+            />
+          )}
         </div>
       </div>
 

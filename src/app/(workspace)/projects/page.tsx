@@ -1,20 +1,28 @@
 import Link from "next/link";
-import { Plus } from "lucide-react";
+import { ArrowUpRight, Lock, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmptyState, WorkspacePanel } from "@/components/workspace/panel";
 import { createServerClient } from "@/lib/supabase/server";
 import { getCurrentProject } from "@/lib/projects/current";
-import { selectProject } from "@/lib/projects/actions";
+import { deleteProject, selectProject } from "@/lib/projects/actions";
+import { ConfirmDelete } from "@/components/workspace/confirm-delete";
+import { getBillingState } from "@/lib/billing/store";
+import { projectCap } from "@/lib/projects/limit";
 
 export const metadata = { title: "All projects — TubePulse" };
 
 export default async function ProjectsPage() {
   const supabase = await createServerClient();
 
-  const [{ data: projects }, current] = await Promise.all([
+  const [{ data: projects }, current, billing] = await Promise.all([
     supabase.from("projects").select("*").order("created_at", { ascending: false }),
     getCurrentProject(),
+    getBillingState(),
   ]);
+
+  // A full plan swaps "New project" for the way to lift the cap, rather than
+  // offering a form that can only refuse.
+  const cap = projectCap(billing.planKey, projects?.length ?? 0);
 
   // What each folder holds. Two small queries rather than one per project:
   // counting in the page would be N+1 round trips, and a projects list is the
@@ -45,12 +53,29 @@ export default async function ProjectsPage() {
       title="All projects"
       description="Return to any private research workspace or start a new one."
       action={
-        <Button asChild className="bg-brand-gradient text-white">
-          <Link href="/projects/new">
-            <Plus aria-hidden />
-            New project
-          </Link>
-        </Button>
+        cap.reached ? (
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="text-muted-foreground flex items-center gap-1.5 text-xs">
+              <Lock className="size-3.5" aria-hidden />
+              {cap.message}
+            </p>
+            {cap.upgradeTo && (
+              <Button asChild variant="outline">
+                <Link href="/billing">
+                  See {cap.upgradeTo}
+                  <ArrowUpRight aria-hidden />
+                </Link>
+              </Button>
+            )}
+          </div>
+        ) : (
+          <Button asChild className="bg-brand-gradient text-white">
+            <Link href="/projects/new">
+              <Plus aria-hidden />
+              New project
+            </Link>
+          </Button>
+        )
       }
     >
       {!projects || projects.length === 0 ? (
@@ -58,18 +83,18 @@ export default async function ProjectsPage() {
           No projects yet. Create a project to begin competitor research.
         </EmptyState>
       ) : (
-        <ul className="grid gap-3 sm:grid-cols-2">
+        <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {projects.map((project) => (
-            <li key={project.id}>
+            <li key={project.id} className="relative min-w-0">
               <form action={selectProject} className="h-full">
                 <input type="hidden" name="projectId" value={project.id} />
                 <input type="hidden" name="redirectTo" value="/project" />
                 <button
                   type="submit"
-                  className="surface-raised lift hover:border-border block h-full w-full rounded-xl p-5 text-left hover:-translate-y-0.5"
+                  className="surface-raised lift hover:border-border block h-full w-full min-w-0 rounded-xl p-5 text-left wrap-anywhere hover:-translate-y-0.5"
                 >
                   <div className="flex items-start justify-between gap-3">
-                    <h3 className="font-semibold tracking-tight">{project.name}</h3>
+                    <h3 className="min-w-0 font-semibold tracking-tight">{project.name}</h3>
                     {current?.id === project.id && (
                       <span className="bg-brand-gradient shrink-0 rounded-full px-2 py-0.5 text-[0.62rem] font-semibold tracking-wide text-white uppercase">
                         Current
@@ -84,7 +109,7 @@ export default async function ProjectsPage() {
                     {project.description}
                   </p>
                 )}
-                  <p className="text-muted-foreground mt-4 font-mono text-[0.68rem]">
+                  <p className="text-muted-foreground mt-4 pr-8 font-mono text-[0.68rem]">
                     {(() => {
                       const channels = channelCounts.get(project.id) ?? 0;
                       const ideas = ideaCounts.get(project.id) ?? 0;
@@ -98,6 +123,16 @@ export default async function ProjectsPage() {
                   </p>
                 </button>
               </form>
+              {/* Outside the select form: a button inside it would submit
+                  "switch to this project" as well. */}
+              <ConfirmDelete
+                action={deleteProject}
+                fields={{ projectId: project.id }}
+                label={`Delete ${project.name}`}
+                question={`Delete “${project.name}”?`}
+                detail="Its competitors, ideas, calendar and transcripts go too. Runs you already used stay used."
+                className="absolute right-3 bottom-3"
+              />
             </li>
           ))}
         </ul>

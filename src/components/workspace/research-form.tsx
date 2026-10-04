@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Camera, Loader2, Lock, MonitorPlay, Search } from "lucide-react";
 import { toast } from "sonner";
@@ -57,6 +58,8 @@ export function ResearchForm({
   const effective = platformFromInput(channel) ?? platform;
   const instagramLocked = effective === "instagram" && !instagramEnabled;
 
+  const router = useRouter();
+
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
     await research(channel, platform);
@@ -72,8 +75,9 @@ export function ResearchForm({
   async function research(target: string, forPlatform: Platform) {
     if (target.trim() === "" || submitting) return;
 
+    // jobId is NOT cleared here: a refused submit used to hide the card of a
+    // run that was still going. It is replaced only when a new run starts.
     setSubmitting(true);
-    setJobId(null);
 
     try {
       const response = await fetch("/api/research", {
@@ -85,16 +89,27 @@ export function ResearchForm({
       const data = await response.json();
 
       if (!response.ok) {
-        toast.error(data.error ?? "Could not start the research.");
+        // 402 = out of runs, and money fixes it — so offer the fix right there.
+        toast.error(data.error ?? "Could not start the research.", {
+          action:
+            response.status === 402
+              ? { label: "See plans", onClick: () => router.push("/billing") }
+              : undefined,
+        });
         return;
       }
 
       setJobId(data.jobId);
       setChannel("");
+      // The run is already counted. Refresh so the sidebar's "Runs this month"
+      // and "Today" move now, not only when the run finishes.
+      router.refresh();
       toast.success(
-        data.platform === "instagram"
-          ? `Researching ${data.handle} on Instagram.`
-          : `Researching ${data.handle}. This takes a few minutes.`,
+        data.done
+          ? `${data.handle} is read. Outliers and patterns are ready.`
+          : data.platform === "instagram"
+            ? `Researching ${data.handle} on Instagram.`
+            : `Researching ${data.handle}. This takes a few minutes.`,
       );
     } catch {
       toast.error("Could not reach the server. Check your connection and try again.");

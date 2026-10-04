@@ -211,6 +211,14 @@ async function handleResolves(
   handle: string,
   platform: "youtube" | "instagram",
 ): Promise<boolean> {
+  // YOUTUBE IS NOT CHECKED. From Vercel's datacenter IPs YouTube answers 404
+  // for channels that plainly exist (found 2026-10-04: a voice request for
+  // "home cooking for beginners" kept 0 of 6 real channels, while the same
+  // handles load fine from a home connection). A check that drops real accounts
+  // is worse than none — a handle that truly does not exist fails its scrape
+  // within seconds, and failed scrapes are not charged.
+  if (platform === "youtube") return true;
+
   const url =
     platform === "instagram"
       ? `https://www.instagram.com/${encodeURIComponent(handle)}/`

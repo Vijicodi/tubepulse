@@ -1,4 +1,11 @@
-import { PLANS, toPaidPlanKey, type PaidPlanKey, type PlanKey } from "@/lib/billing/plans";
+import {
+  PLANS,
+  formatInr,
+  paiseToInr,
+  toPaidPlanKey,
+  type PaidPlanKey,
+  type PlanKey,
+} from "@/lib/billing/plans";
 import type { BillingCycleValue, SubscriptionRow, SubscriptionStatus } from "@/lib/supabase/types";
 
 /**
@@ -24,6 +31,9 @@ const PAYING: readonly SubscriptionStatus[] = ["active", "authenticated"];
 
 /** Statuses that keep access alive only while the paid period has not lapsed. */
 const GRACE: readonly SubscriptionStatus[] = ["cancelled", "completed", "pending"];
+
+/** How long past its period end a paying row keeps access while a renewal lands. */
+export const RENEWAL_GRACE_MS = 3 * 24 * 60 * 60 * 1000;
 
 export interface BillingState {
   /** The plan whose features should be unlocked right now. */
@@ -106,7 +116,14 @@ export function hasPaidAccess(
   row: Pick<SubscriptionRow, "status" | "current_period_end">,
   now: Date = new Date(),
 ): boolean {
-  if (PAYING.includes(row.status)) return true;
+  if (PAYING.includes(row.status)) {
+    // A paying row whose period ended more than the grace window ago means a
+    // renewal or halt event never reached us. Without this date check a lost
+    // webhook was paid access forever. The grace covers Razorpay's retry of a
+    // failed renewal; the billing page re-syncs such rows on load.
+    if (!row.current_period_end) return true;
+    return new Date(row.current_period_end).getTime() + RENEWAL_GRACE_MS > now.getTime();
+  }
 
   if (GRACE.includes(row.status) && row.current_period_end) {
     return new Date(row.current_period_end) > now;
@@ -193,7 +210,7 @@ export function activePromoFrom(
   const count = `${remaining} ${remaining === 1 ? unit : `${unit}s`}`;
   const price =
     row.promo_renews_at_cents !== null
-      ? formatCents(row.promo_renews_at_cents)
+      ? formatInr(paiseToInr(row.promo_renews_at_cents))
       : null;
 
   return {
@@ -207,15 +224,6 @@ export function activePromoFrom(
   };
 }
 
-function formatCents(cents: number): string {
-  const dollars = cents / 100;
-  return Number.isInteger(dollars)
-    ? `$${dollars.toLocaleString("en-US")}`
-    : `$${dollars.toLocaleString("en-US", {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      })}`;
-}
 
 function headlineFor(
   row: SubscriptionRow,
@@ -257,9 +265,13 @@ function headlineFor(
 
 /** "12 September 2026" — the billing page reads as prose, not as a table. */
 export function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("en-US", {
+  // "3 Nov 2026", in India time — the same style as the rest of the app. It
+  // used to read "November 3, 2026" in the server's UTC, beside a sidebar
+  // saying "resets 4 Nov" for the same moment.
+  return new Date(iso).toLocaleDateString("en-IN", {
     day: "numeric",
-    month: "long",
+    month: "short",
     year: "numeric",
+    timeZone: "Asia/Kolkata",
   });
 }

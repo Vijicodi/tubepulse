@@ -273,6 +273,11 @@ export type SubscriptionRow = {
   promo_cycles_remaining: number | null;
   /** Price once the discount stops, frozen at checkout. */
   promo_renews_at_cents: number | null;
+  /**
+   * A plan switch waiting to be paid — the NEW subscription's id. The current
+   * plan stays on razorpay_subscription_id until this one is paid. See 0019.
+   */
+  switch_subscription_id: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -358,6 +363,7 @@ export type Database = {
           | "promo_cycles_total"
           | "promo_cycles_remaining"
           | "promo_renews_at_cents"
+          | "switch_subscription_id"
           // The provider columns follow the same rule. A Razorpay upsert must
           // be able to omit the PayPal ids entirely (and vice versa) rather
           // than write nulls across the other provider's row — and `provider`
@@ -389,6 +395,7 @@ export type Database = {
           promo_cycles_total?: number | null;
           promo_cycles_remaining?: number | null;
           promo_renews_at_cents?: number | null;
+          switch_subscription_id?: string | null;
         };
         Update: Partial<Omit<SubscriptionRow, Timestamps>>;
         Relationships: [];
